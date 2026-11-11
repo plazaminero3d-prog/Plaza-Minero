@@ -1,7 +1,7 @@
 // ====================================================
-// MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO (ALTA CALIDAD VISUAL + FLUIDEZ + SIN OUTLINE)
-// SUBIDA TOTAL EN GRADAS DE COLORES, ACERA DEL POSTE Y RAMPA AL OTRO LADO
-// + MINIMAPA RADAR 2D ROTATORIO (FRENTE SIEMPRE ARRIBA) + MODO POSTAL (TECLA P)
+// MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
+// VERSIÓN CORREGIDA SIN ERRORES DE SKELETON.UPDATE EN THREE.JS r108
+// + COMPATIBLE CON GITHUB PAGES + ANIMACIÓN MIXAMO EN MINERO Y MINERA
 // ====================================================
 
 var scene, camera, renderer, plaza, controles, sound;
@@ -10,7 +10,28 @@ var lucesPostes = [];
 var clock = new THREE.Clock();
 
 var composer, renderPass, filmPass;
-var maxAnisotropy = 4;
+var maxAnisotropy = 8;
+var monumentoModalActivo = false;
+var monumentoIframeOverlay = null;
+
+// Variables para el Selector de Personaje (Minero / Minera)
+var seleccionPersonajeActiva = false;
+var personajeYaElegido = false;
+var tipoPersonajeActual = 'minero'; // 'minero' o 'minera'
+var selectorPersonajeModalEl = null;
+
+// Escenas dedicadas para previsualizar el Minero y la Minera usando el renderer principal (evita errores de contexto WebGL)
+var previewScenes = { minero: null, minera: null };
+var previewCameras = { minero: null, minera: null };
+var previewModels = { minero: null, minera: null };
+var previewMixers = { minero: null, minera: null };
+var previewCanvasCtx = { minero: null, minera: null };
+
+// 👉 RUTAS DE LOS MODELOS 3D DE TUS PERSONAJES (CON VARIANTES PARA GITHUB PAGES):
+var MODELOS_PERSONAJES = {
+    minero: ["assets/personaje.glb", "assets/Personaje.glb", "assets/minero.glb", "assets/Minero.glb"],
+    minera: ["assets/minera.glb", "assets/Minera.glb", "assets/palliri.glb", "assets/Palliri.glb"]
+};
 
 // ====================================================
 // CONFIGURACIÓN CALIBRADA DEL PERSONAJE, CÁMARA Y GRADAS/RAMPAS
@@ -19,18 +40,18 @@ var CONFIG_PLAYER = {
     startPosition: [30, 0, -10], // Punto de inicio
     startYaw: 0.45,
     baseGroundY: 7.2,
-    minSafetyY: -2.0,              // Nivel más bajo permitido
+    minSafetyY: -2.0,
 
-    // 👉 TAMAÑO Y AJUSTE DE PIES DEL MINERO:
+    // 👉 TAMAÑO Y AJUSTE DE PIES DEL PERSONAJE:
     alturaDeseadaPersonaje: 9.5,
     characterFootOffset: 0.0,
     characterYawOffset: Math.PI,
 
     // 👉 CONFIGURACIÓN PARA SUBIR TODAS LAS GRADAS, ACERAS Y RAMPAS:
-    maxStepUp: 6.8,                // Sube gradas de colores, acera del poste y rampas sin trabarse
-    maxStepDown: 16.0,             // Baja cualquier grada o rampa suavemente
-    floorUpSpeed: 28.0,            // Subida rápida para que NUNCA se entierre en la acera ni en las gradas
-    floorDownSpeed: 18.0,          // Bajada fluida por escalones y rampas
+    maxStepUp: 6.8,
+    maxStepDown: 16.0,
+    floorUpSpeed: 28.0,
+    floorDownSpeed: 18.0,
 
     // 👉 CÁMARA EN 3ª PERSONA ELEVADA Y ALEJADA
     cameraDistance: 18.0,
@@ -83,7 +104,7 @@ var locked = false;
 var currentCameraDistance = CONFIG_PLAYER.cameraDistance;
 
 // Estado del Recorrido Cinemático (Tour 3D)
-var tourActivo = true; // Inicia activo para que desde el splash nunca enfoque directo al minero
+var tourActivo = true;
 var tourElapsed = 0;
 var tourCurves = null;
 var tourOverlayEl = null;
@@ -91,13 +112,14 @@ var tourBarEl = null;
 var tourLabelEl = null;
 
 // Listas de colisión física
-var floorMeshes = [];        // Todas las mallas de piso, gradas de colores, acera del poste y rampas
-var wallMeshes = [];         // Solo muros verticales altos, barandas y bancas (NO gradas)
-var cameraBlockMeshes = [];  // Fachadas exteriores altas
+var floorMeshes = [];
+var wallMeshes = [];
+var cameraBlockMeshes = [];
 var collisionMeshes = [];
-var circleObstacles = [];    // Obstáculos cilíndricos (postes, árboles, sillas, macetas, pilares, monumentos)
+var circleObstacles = [];
 
 var characterGroup = new THREE.Group();
+characterGroup.visible = false;
 var characterModel = null;
 var characterMixer = null;
 var characterActions = { idle: null, walk: null };
@@ -126,7 +148,7 @@ var hudPromptEl = null;
 var minimapContainerEl = null;
 var minimapCanvas = null;
 var minimapCtx = null;
-var minimapScale = 0.62; // Escala de metros 3D a píxeles en el radar
+var minimapScale = 0.62;
 var monumentoGuiaManual = null;
 var logoPostalImg = new Image();
 logoPostalImg.crossOrigin = "anonymous";
@@ -137,12 +159,728 @@ var marcadores = [
     { texto: "Monumento a Federico Escobar", corto: "Federico", posicion: new THREE.Vector3(-70, 40, 11.5), pisoPos: new THREE.Vector3(-70, 7.2, 11.5), elemento: null, enlace: "federico.html" },
     { texto: "Monumento a Cesar, Gillermo e Isaac", corto: "Mártires", posicion: new THREE.Vector3(-74, 39, -38), pisoPos: new THREE.Vector3(-74, 7.2, -38), elemento: null, enlace: "cesar.html" },
     { texto: "Monumento a las Palliris", corto: "Palliris", posicion: new THREE.Vector3(-78, 40, -74), pisoPos: new THREE.Vector3(-78, 7.2, -74), elemento: null, enlace: "palliri.html" },
-    // 👉 Alcance aumentado a 28.0 metros exclusivamente para el Monumento al Minero
     { texto: "Monumento al Minero", corto: "Minero", posicion: new THREE.Vector3(-111.5, 57, -13), pisoPos: new THREE.Vector3(-111.5, 7.2, -13), elemento: null, enlace: "minero.html", radio: 28.0 }
 ];
 
 // ====================================================
-// MEJORA DE NITIDEZ DE TEXTURAS (FILTRADO ANISOTRÓPICO)
+// CARGADOR INTELIGENTE DE GLB (SOPORTA MAYÚSCULAS/MINÚSCULAS EN GITHUB PAGES)
+// ====================================================
+function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
+    var rutas = Array.isArray(listaRutas) ? listaRutas : [listaRutas];
+    var indice = 0;
+    var loader = new THREE.GLTFLoader();
+
+    function intentarSiguiente() {
+        if (indice >= rutas.length) {
+            if (onErrorFinal) onErrorFinal();
+            return;
+        }
+        var rutaActual = rutas[indice++];
+        loader.load(rutaActual, function(gltf) {
+            onSuccess(gltf, rutaActual);
+        }, undefined, function() {
+            intentarSiguiente();
+        });
+    }
+
+    intentarSiguiente();
+}
+
+function congelarObjetoEstatico(objeto) {
+    if (!objeto) return;
+    objeto.updateMatrixWorld(true);
+    objeto.traverse(function(c) {
+        if (c && !c.isSkinnedMesh && !c.isBone && c.type !== 'Bone') {
+            c.matrixAutoUpdate = false;
+            c.updateMatrix();
+        }
+    });
+}
+
+// ====================================================
+// CÁLCULO SEGURO DE LÍMITES (SIN LLAMAR A SKELETON.UPDATE QUE ROMPE r108)
+// ====================================================
+function calcularLimitesSeguros(objeto) {
+    objeto.updateMatrixWorld(true);
+
+    var minX = Infinity, maxX = -Infinity;
+    var minY = Infinity, maxY = -Infinity;
+    var minZ = Infinity, maxZ = -Infinity;
+    var v = new THREE.Vector3();
+
+    objeto.traverse(function(child) {
+        if (child && child.isMesh && child.geometry) {
+            var posAttr = child.geometry.attributes && child.geometry.attributes.position;
+            if (posAttr && typeof posAttr.getX === 'function') {
+                var stride = Math.max(1, Math.floor(posAttr.count / 500));
+                for (var i = 0; i < posAttr.count; i += stride) {
+                    v.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+                    v.applyMatrix4(child.matrixWorld);
+                    if (v.x < minX) minX = v.x;
+                    if (v.x > maxX) maxX = v.x;
+                    if (v.y < minY) minY = v.y;
+                    if (v.y > maxY) maxY = v.y;
+                    if (v.z < minZ) minZ = v.z;
+                    if (v.z > maxZ) maxZ = v.z;
+                }
+            }
+        }
+    });
+
+    var boneMinY = Infinity, boneMaxY = -Infinity;
+    var boneMinX = Infinity, boneMaxX = -Infinity;
+    objeto.traverse(function(node) {
+        if (node && (node.isBone || node.type === 'Bone')) {
+            node.getWorldPosition(v);
+            if (v.y < boneMinY) boneMinY = v.y;
+            if (v.y > boneMaxY) boneMaxY = v.y;
+            if (v.x < boneMinX) boneMinX = v.x;
+            if (v.x > boneMaxX) boneMaxX = v.x;
+        }
+    });
+
+    if (isFinite(boneMaxY) && isFinite(boneMinY) && (boneMaxY - boneMinY) > 0.01) {
+        var spanBoneY = boneMaxY - boneMinY;
+        var topConCasco = boneMaxY + spanBoneY * 0.16;
+        var bottomConBotas = boneMinY - spanBoneY * 0.06;
+        if (!isFinite(maxY) || topConCasco > maxY) maxY = topConCasco;
+        if (!isFinite(minY) || bottomConBotas < minY) minY = bottomConBotas;
+        if (!isFinite(minX) || boneMinX < minX) minX = boneMinX;
+        if (!isFinite(maxX) || boneMaxX > maxX) maxX = boneMaxX;
+    }
+
+    if (!isFinite(minY) || !isFinite(maxY) || Math.abs(maxY - minY) < 0.001) {
+        return { minX: -2, maxX: 2, minY: 0, maxY: 9.5, minZ: -2, maxZ: 2 };
+    }
+
+    return { minX: minX, maxX: maxX, minY: minY, maxY: maxY, minZ: minZ, maxZ: maxZ };
+}
+
+// ====================================================
+// VISORES 3D DE SELECCIÓN USANDO UN SOLO RENDERER COMPARTIDO (CERO ERRORES EN THREE.MIN.JS)
+// ====================================================
+var _offscreenPreviewRenderer = null;
+
+function obtenerRendererPreviewCompartido(w, h) {
+    if (!_offscreenPreviewRenderer) {
+        _offscreenPreviewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
+        _offscreenPreviewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+        _offscreenPreviewRenderer.gammaOutput = true;
+        _offscreenPreviewRenderer.gammaFactor = 2.2;
+    }
+    _offscreenPreviewRenderer.setSize(w, h, false);
+    return _offscreenPreviewRenderer;
+}
+
+function inicializarVisorPreview3D(tipo, canvasId) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    var dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+    var w = 360;
+    var h = 320;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    previewCanvasCtx[tipo] = canvas.getContext('2d');
+
+    var pScene = new THREE.Scene();
+    var pCamera = new THREE.PerspectiveCamera(34, w / h, 0.1, 200);
+
+    var amb = new THREE.AmbientLight(0xffffff, 1.1);
+    pScene.add(amb);
+
+    var dirFront = new THREE.DirectionalLight(0xfff4d6, 1.45);
+    dirFront.position.set(5, 12, 18);
+    pScene.add(dirFront);
+
+    var dirRim = new THREE.DirectionalLight(0x4ade80, 0.65);
+    dirRim.position.set(-8, 8, -12);
+    pScene.add(dirRim);
+
+    previewScenes[tipo] = pScene;
+    previewCameras[tipo] = pCamera;
+
+    var listaRutas = (tipo === 'minera') ? MODELOS_PERSONAJES.minera : MODELOS_PERSONAJES.minero;
+
+    function colocarModeloEnPreview(gltf) {
+        if (previewModels[tipo]) {
+            pScene.remove(previewModels[tipo]);
+        }
+
+        var pivotGroup = new THREE.Group();
+        var model = gltf.scene;
+
+        model.traverse(function(c) {
+            if (c && c.isMesh) {
+                c.frustumCulled = false;
+                mejorarCalidadMaterial(c.material);
+            }
+        });
+
+        // Si el modelo trae animación de Mixamo, activarla suavemente también en el visor de selección
+        if (gltf.animations && gltf.animations.length > 0) {
+            var pMixer = new THREE.AnimationMixer(model);
+            var clip = gltf.animations[0];
+            eliminarRetrocesoMixamoEnClip(clip);
+            var action = pMixer.clipAction(clip);
+            action.play();
+            pMixer.update(0.01);
+            previewMixers[tipo] = pMixer;
+        }
+
+        model.position.set(0, 0, 0);
+        model.scale.set(1, 1, 1);
+        var boundsInicial = calcularLimitesSeguros(model);
+        var altoInicial = Math.max(0.001, boundsInicial.maxY - boundsInicial.minY);
+        var escala = CONFIG_PLAYER.alturaDeseadaPersonaje / altoInicial;
+        model.scale.setScalar(escala);
+
+        var boundsFinal = calcularLimitesSeguros(model);
+        var cx = (boundsFinal.minX + boundsFinal.maxX) * 0.5;
+        var cy = (boundsFinal.minY + boundsFinal.maxY) * 0.5;
+        var cz = (boundsFinal.minZ + boundsFinal.maxZ) * 0.5;
+
+        model.position.set(-cx, -cy, -cz);
+        pivotGroup.add(model);
+        pivotGroup.position.set(0, 0, 0);
+        pScene.add(pivotGroup);
+
+        var altoReal = Math.max(8.5, boundsFinal.maxY - boundsFinal.minY);
+        var anchoReal = Math.max(5.5, boundsFinal.maxX - boundsFinal.minX);
+        var fovRad = pCamera.fov * (Math.PI / 180);
+        var aspect = w / h;
+
+        var distAlto = (altoReal * 0.64) / Math.tan(fovRad * 0.5);
+        var distAncho = (anchoReal * 0.68) / (Math.tan(fovRad * 0.5) * aspect);
+        var distCamara = Math.max(distAlto, distAncho, 17.5);
+
+        pCamera.position.set(0, 0, distCamara);
+        pCamera.lookAt(new THREE.Vector3(0, 0, 0));
+        pCamera.updateProjectionMatrix();
+
+        previewModels[tipo] = pivotGroup;
+    }
+
+    cargarGLBConRespaldo(listaRutas, colocarModeloEnPreview, function() {
+        cargarGLBConRespaldo(MODELOS_PERSONAJES.minero, colocarModeloEnPreview);
+    });
+}
+
+function renderizarVisoresPreviewPersonajes(delta, elapsedTime) {
+    if (!seleccionPersonajeActiva) return;
+    var anguloFrontalSuave = Math.sin(elapsedTime * 1.4) * 0.25;
+    var sharedRenderer = obtenerRendererPreviewCompartido(360, 320);
+
+    ['minero', 'minera'].forEach(function(tipo) {
+        var s = previewScenes[tipo];
+        var c = previewCameras[tipo];
+        var m = previewModels[tipo];
+        var ctx2d = previewCanvasCtx[tipo];
+        var mixer = previewMixers[tipo];
+
+        if (s && c && m && ctx2d) {
+            if (mixer) {
+                mixer.update(delta * 0.75);
+            }
+            m.rotation.y = anguloFrontalSuave;
+            sharedRenderer.render(s, c);
+
+            var destCanvas = ctx2d.canvas;
+            ctx2d.clearRect(0, 0, destCanvas.width, destCanvas.height);
+            ctx2d.drawImage(sharedRenderer.domElement, 0, 0, destCanvas.width, destCanvas.height);
+        }
+    });
+}
+
+// ====================================================
+// VENTANA MODAL ADAPTADA Y CENTRADA SIN CORTAR BOTONES NI PERSONAJES
+// ====================================================
+function crearModalSeleccionPersonaje() {
+    var viejoModal = document.getElementById('modal-seleccion-personaje');
+    if (viejoModal) viejoModal.remove();
+
+    selectorPersonajeModalEl = document.createElement('div');
+    selectorPersonajeModalEl.id = 'modal-seleccion-personaje';
+    selectorPersonajeModalEl.style.cssText =
+        'position:fixed; inset:0; width:100vw; height:100vh; background:rgba(4,12,8,0.84); ' +
+        'backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:98000; ' +
+        'display:none; justify-content:center; align-items:center; padding:14px; user-select:none; ' +
+        'font-family:Montserrat,sans-serif; opacity:0; transition:opacity 0.35s ease;';
+
+    selectorPersonajeModalEl.innerHTML =
+        '<div style="background:rgba(14,20,24,0.96); border:2px solid #e0b066; border-radius:24px; padding:20px 28px; max-width:960px; width:95vw; max-height:94vh; display:flex; flex-direction:column; justify-content:center; text-align:center; box-shadow:0 24px 65px rgba(0,0,0,0.94), 0 0 38px rgba(224,176,102,0.24);">' +
+            '<div style="color:#facc15; font-size:0.75rem; font-weight:800; letter-spacing:3px; text-transform:uppercase; margin-bottom:4px;">✨ PLAZA DEL MINERO - SIGLO XX ✨</div>' +
+            '<h2 style="font-family:Cinzel Decorative,Cinzel,serif; color:#ffffff; font-size:clamp(1.4rem, 2.3vw, 2.0rem); margin:0 0 4px 0; letter-spacing:2px; text-shadow:0 4px 14px rgba(0,0,0,0.8);">ELIGE TU PERSONAJE</h2>' +
+            '<p style="color:#cbd5e1; font-size:0.85rem; margin:0 0 14px 0; line-height:1.35;">Selecciona con quién deseas recorrer a pie la histórica Plaza del Minero:</p>' +
+            
+            '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(310px, 1fr)); gap:22px; margin-bottom:8px; align-items:stretch;">' +
+                
+                // TARJETA 1: MINERO
+                '<div id="card-elegir-minero" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(224,176,102,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.22s ease, box-shadow 0.22s ease; display:flex; flex-direction:column; align-items:center; box-shadow:0 12px 30px rgba(0,0,0,0.7);">' +
+                    '<div style="width:100%; height:clamp(240px, 38vh, 320px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(250,204,21,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(250,204,21,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden; box-shadow:inset 0 0 28px rgba(0,0,0,0.8);">' +
+                        '<canvas id="preview-canvas-minero" style="width:100%; height:100%; max-width:360px; max-height:320px; object-fit:contain; display:block;"></canvas>' +
+                    '</div>' +
+                    '<h3 style="font-family:Cinzel,serif; color:#fde047; font-size:1.28rem; margin:0 0 4px 0; letter-spacing:1.5px;">MINERO</h3>' +
+                    '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Trabajador del subsuelo de Siglo XX con guardatojo y equipo tradicional.</p>' +
+                    '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #e0b066, #facc15); color:#0a0f0d; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase; box-shadow:0 4px 16px rgba(250,204,21,0.4);">ELEGIR MINERO</button>' +
+                '</div>' +
+
+                // TARJETA 2: MINERA
+                '<div id="card-elegir-minera" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(74,222,128,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.22s ease, box-shadow 0.22s ease; display:flex; flex-direction:column; align-items:center; box-shadow:0 12px 30px rgba(0,0,0,0.7);">' +
+                    '<div style="width:100%; height:clamp(240px, 38vh, 320px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(74,222,128,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(74,222,128,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden; box-shadow:inset 0 0 28px rgba(0,0,0,0.8);">' +
+                        '<canvas id="preview-canvas-minera" style="width:100%; height:100%; max-width:360px; max-height:320px; object-fit:contain; display:block;"></canvas>' +
+                    '</div>' +
+                    '<h3 style="font-family:Cinzel,serif; color:#86efac; font-size:1.28rem; margin:0 0 4px 0; letter-spacing:1.5px;">MINERA</h3>' +
+                    '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Mujer minera y valiente Palliri, símbolo de lucha e historia en Llallagua.</p>' +
+                    '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #22c55e, #4ade80); color:#05140b; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase; box-shadow:0 4px 16px rgba(74,222,128,0.4);">ELEGIR MINERA</button>' +
+                '</div>' +
+
+            '</div>' +
+            '<div style="color:rgba(224,218,207,0.68); font-size:0.74rem; margin-top:4px;">💡 Puedes cambiar de personaje en cualquier momento presionando la <b>Tecla C</b></div>' +
+        '</div>';
+
+    document.body.appendChild(selectorPersonajeModalEl);
+
+    inicializarVisorPreview3D('minero', 'preview-canvas-minero');
+    inicializarVisorPreview3D('minera', 'preview-canvas-minera');
+
+    var cardMinero = document.getElementById('card-elegir-minero');
+    var cardMinera = document.getElementById('card-elegir-minera');
+
+    [cardMinero, cardMinera].forEach(function(card) {
+        if (!card) return;
+        card.addEventListener('mouseenter', function() {
+            card.style.transform = 'translateY(-4px) scale(1.01)';
+            card.style.boxShadow = '0 18px 38px rgba(0,0,0,0.88), 0 0 28px rgba(224,176,102,0.42)';
+        });
+        card.addEventListener('mouseleave', function() {
+            card.style.transform = 'translateY(0) scale(1)';
+            card.style.boxShadow = '0 12px 30px rgba(0,0,0,0.7)';
+        });
+    });
+
+    if (cardMinero) {
+        cardMinero.addEventListener('click', function(e) {
+            e.stopPropagation();
+            window.seleccionarPersonaje('minero');
+        });
+    }
+    if (cardMinera) {
+        cardMinera.addEventListener('click', function(e) {
+            e.stopPropagation();
+            window.seleccionarPersonaje('minera');
+        });
+    }
+}
+
+window.mostrarSelectorPersonaje = function() {
+    if (!selectorPersonajeModalEl) {
+        crearModalSeleccionPersonaje();
+    }
+    keys = {};
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+    seleccionPersonajeActiva = true;
+    if (hudGuiaEl) hudGuiaEl.style.opacity = '0';
+    if (hudPromptEl) hudPromptEl.style.display = 'none';
+
+    selectorPersonajeModalEl.style.display = 'flex';
+    setTimeout(function() {
+        if (selectorPersonajeModalEl) selectorPersonajeModalEl.style.opacity = '1';
+    }, 20);
+};
+
+window.seleccionarPersonaje = function(tipo) {
+    tipoPersonajeActual = (tipo === 'minera') ? 'minera' : 'minero';
+    personajeYaElegido = true;
+    seleccionPersonajeActiva = false;
+
+    try {
+        sessionStorage.setItem('personajeElegidoPlaza', tipoPersonajeActual);
+    } catch (e) {}
+
+    if (selectorPersonajeModalEl) {
+        selectorPersonajeModalEl.style.opacity = '0';
+        setTimeout(function() {
+            if (selectorPersonajeModalEl) selectorPersonajeModalEl.style.display = 'none';
+        }, 300);
+    }
+
+    // Mostrar de inmediato mientras termina de aplicar el modelo seleccionado
+    characterGroup.visible = true;
+    if (hudGuiaEl) hudGuiaEl.style.opacity = '1';
+
+    cargarModeloPersonaje(tipoPersonajeActual, function() {
+        characterGroup.visible = true;
+        clock.getDelta();
+        placeCharacterAndCamera(clock.getElapsedTime());
+    });
+};
+
+// ====================================================
+// ANIMACIÓN DE MIXAMO IGUAL PARA EL MINERO Y LA MINERA
+// ====================================================
+function resetearHuesosRig() {
+    rigBones = {
+        leftUpLeg: null, rightUpLeg: null,
+        leftLeg: null, rightLeg: null,
+        leftArm: null, rightArm: null,
+        leftForeArm: null, rightForeArm: null,
+        hips: null, spine: null,
+        hipsRestPos: null,
+        restPoseGuardada: false
+    };
+    characterMixer = null;
+    characterActions = { idle: null, walk: null };
+    characterHasAnimations = false;
+    walkCycleTime = 0;
+}
+
+function eliminarRetrocesoMixamoEnClip(clip) {
+    if (!clip || !clip.tracks) return;
+    clip.tracks.forEach(function(track) {
+        if (/\.position$/i.test(track.name) && track.values && track.values.length >= 3) {
+            var baseX = track.values[0];
+            var baseY = track.values[1];
+            var baseZ = track.values[2];
+            for (var i = 0; i < track.values.length; i += 3) {
+                track.values[i] = baseX;
+                track.values[i + 1] = baseY + (track.values[i + 1] - baseY) * 0.2;
+                track.values[i + 2] = baseZ;
+            }
+        }
+    });
+}
+
+function fijarCaderaEnElSitio() {
+    if (rigBones.hips && rigBones.hipsRestPos) {
+        rigBones.hips.position.x = rigBones.hipsRestPos.x;
+        rigBones.hips.position.z = rigBones.hipsRestPos.z;
+    }
+}
+
+function normalizarTamanoYCentrarMinero(model) {
+    model.position.set(0, 0, 0);
+    model.scale.set(1, 1, 1);
+
+    var bounds1 = calcularLimitesSeguros(model);
+    var alturaActual = Math.max(0.001, bounds1.maxY - bounds1.minY);
+
+    var factorEscala = CONFIG_PLAYER.alturaDeseadaPersonaje / alturaActual;
+    model.scale.setScalar(factorEscala);
+
+    var bounds2 = calcularLimitesSeguros(model);
+    var centroX = (bounds2.minX + bounds2.maxX) * 0.5;
+    var centroZ = (bounds2.minZ + bounds2.maxZ) * 0.5;
+    model.position.set(-centroX, -bounds2.minY, -centroZ);
+}
+
+function mapearHuesosPersonaje(model) {
+    model.traverse(function(node) {
+        if (node && (node.isBone || node.type === 'Bone' || /mixamorig|arm|leg|thigh|calf|hips|spine|shoulder/i.test(node.name))) {
+            var n = (node.name || '').toLowerCase();
+
+            if (/leftupleg|upleg_l|thigh_l|l_thigh|leftthigh/i.test(n)) rigBones.leftUpLeg = node;
+            else if (/rightupleg|upleg_r|thigh_r|r_thigh|rightthigh/i.test(n)) rigBones.rightUpLeg = node;
+            else if (/leftleg|leg_l|calf_l|shin_l|l_calf/i.test(n)) rigBones.leftLeg = node;
+            else if (/rightleg|leg_r|calf_r|shin_r|r_calf/i.test(n)) rigBones.rightLeg = node;
+            else if (/leftforearm|forearm_l|lowerarm_l/i.test(n)) rigBones.leftForeArm = node;
+            else if (/rightforearm|forearm_r|lowerarm_r/i.test(n)) rigBones.rightForeArm = node;
+            else if (/leftarm|arm_l|upperarm_l|l_upperarm/i.test(n)) rigBones.leftArm = node;
+            else if (/rightarm|arm_r|upperarm_r|r_upperarm/i.test(n)) rigBones.rightArm = node;
+            else if (/hips|pelvis|root/i.test(n) && !rigBones.hips) {
+                rigBones.hips = node;
+                rigBones.hipsRestPos = node.position.clone();
+            }
+            else if (/spine/i.test(n) && !rigBones.spine) rigBones.spine = node;
+        }
+    });
+
+    ['leftUpLeg', 'rightUpLeg', 'leftLeg', 'rightLeg', 'leftArm', 'rightArm', 'leftForeArm', 'rightForeArm'].forEach(function(k) {
+        var b = rigBones[k];
+        if (b) {
+            b.userData.initRot = b.rotation.clone();
+        }
+    });
+
+    rigBones.restPoseGuardada = !!(rigBones.leftUpLeg || rigBones.rightUpLeg || rigBones.leftArm || rigBones.rightArm);
+}
+
+function actualizarAnimacionMinero(delta, isWalking, isRunning) {
+    var footOffset = CONFIG_PLAYER.characterFootOffset || 0;
+
+    if (characterHasAnimations && characterMixer && characterActions.walk) {
+        characterActions.walk.paused = !isWalking;
+        characterActions.walk.timeScale = isRunning ? 1.45 : 1.0;
+        characterMixer.update(delta);
+        fijarCaderaEnElSitio();
+        characterGroup.position.y = player.position.y + footOffset;
+        return;
+    }
+
+    if (!characterModel) return;
+
+    if (rigBones.restPoseGuardada) {
+        if (rigBones.leftArm && rigBones.leftArm.userData.initRot) {
+            rigBones.leftArm.rotation.z = rigBones.leftArm.userData.initRot.z - 1.1;
+        }
+        if (rigBones.rightArm && rigBones.rightArm.userData.initRot) {
+            rigBones.rightArm.rotation.z = rigBones.rightArm.userData.initRot.z + 1.1;
+        }
+
+        if (isWalking) {
+            walkCycleTime += delta * (isRunning ? 13.0 : 8.5);
+            var s = Math.sin(walkCycleTime);
+            var c = Math.cos(walkCycleTime);
+
+            if (rigBones.leftUpLeg) rigBones.leftUpLeg.rotation.x = rigBones.leftUpLeg.userData.initRot.x + s * 0.65;
+            if (rigBones.rightUpLeg) rigBones.rightUpLeg.rotation.x = rigBones.rightUpLeg.userData.initRot.x - s * 0.65;
+            if (rigBones.leftLeg) rigBones.leftLeg.rotation.x = rigBones.leftLeg.userData.initRot.x + Math.max(0, -c) * 0.55;
+            if (rigBones.rightLeg) rigBones.rightLeg.rotation.x = rigBones.rightLeg.userData.initRot.x + Math.max(0, c) * 0.55;
+            if (rigBones.leftArm) rigBones.leftArm.rotation.x = rigBones.leftArm.userData.initRot.x - s * 0.45;
+            if (rigBones.rightArm) rigBones.rightArm.rotation.x = rigBones.rightArm.userData.initRot.x + s * 0.45;
+
+            characterGroup.position.y = player.position.y + footOffset + Math.abs(c) * 0.12;
+        } else {
+            ['leftUpLeg', 'rightUpLeg', 'leftLeg', 'rightLeg'].forEach(function(k) {
+                if (rigBones[k] && rigBones[k].userData.initRot) {
+                    rigBones[k].rotation.x = rigBones[k].userData.initRot.x;
+                }
+            });
+            if (rigBones.leftArm && rigBones.leftArm.userData.initRot) rigBones.leftArm.rotation.x = rigBones.leftArm.userData.initRot.x;
+            if (rigBones.rightArm && rigBones.rightArm.userData.initRot) rigBones.rightArm.rotation.x = rigBones.rightArm.userData.initRot.x;
+            characterGroup.position.y = player.position.y + footOffset;
+        }
+    }
+}
+
+function aplicarGltfAlPersonaje(gltf, tipo) {
+    while (characterGroup.children.length > 0) {
+        characterGroup.remove(characterGroup.children[0]);
+    }
+    resetearHuesosRig();
+
+    var model = gltf.scene;
+    characterModel = model;
+
+    model.traverse(function(child) {
+        if (child && child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            child.frustumCulled = false;
+            mejorarCalidadMaterial(child.material);
+        }
+    });
+
+    normalizarTamanoYCentrarMinero(model);
+    mapearHuesosPersonaje(model);
+
+    characterGroup.add(model);
+
+    if (gltf.animations && gltf.animations.length > 0) {
+        var clipsConMovimiento = gltf.animations.filter(function(c) {
+            return c.tracks && c.tracks.length > 2 && c.duration > 0.15;
+        });
+
+        if (clipsConMovimiento.length > 0) {
+            characterMixer = new THREE.AnimationMixer(model);
+            var walkClip = clipsConMovimiento[0];
+            for (var i = 0; i < clipsConMovimiento.length; i++) {
+                if (/walk|caminar|run|mixamo/i.test(clipsConMovimiento[i].name)) {
+                    walkClip = clipsConMovimiento[i];
+                    break;
+                }
+            }
+
+            eliminarRetrocesoMixamoEnClip(walkClip);
+
+            characterActions.walk = characterMixer.clipAction(walkClip);
+            characterActions.walk.play();
+            characterActions.walk.paused = true;
+            characterHasAnimations = true;
+            characterMixer.update(0.01);
+            fijarCaderaEnElSitio();
+        }
+    }
+
+    characterGroup.position.set(
+        player.position.x,
+        player.position.y + (CONFIG_PLAYER.characterFootOffset || 0),
+        player.position.z
+    );
+    characterGroup.rotation.y = characterFacingYaw + CONFIG_PLAYER.characterYawOffset;
+}
+
+function cargarModeloPersonaje(tipo, onComplete) {
+    var clave = (tipo === 'minera') ? 'minera' : 'minero';
+    var rutas = MODELOS_PERSONAJES[clave];
+
+    cargarGLBConRespaldo(rutas, function(gltf) {
+        aplicarGltfAlPersonaje(gltf, clave);
+        if (onComplete) onComplete();
+    }, function() {
+        console.warn("⚠️ Usando modelo principal de respaldo para " + clave);
+        cargarGLBConRespaldo(MODELOS_PERSONAJES.minero, function(gltfFallback) {
+            aplicarGltfAlPersonaje(gltfFallback, clave);
+            if (onComplete) onComplete();
+        }, function() {
+            if (onComplete) onComplete();
+        });
+    });
+}
+
+// ====================================================
+// SISTEMA DE APERTURA Y RETORNO INSTANTÁNEO DE MONUMENTOS (0 SEGUNDOS DE CARGA)
+// ====================================================
+function guardarEstadoJugadorEnSesion() {
+    try {
+        var estado = {
+            x: player.position.x,
+            y: player.position.y,
+            z: player.position.z,
+            yaw: player.yaw,
+            pitch: player.pitch,
+            facingYaw: characterFacingYaw,
+            camDist: currentCameraDistance,
+            tipoPersonaje: tipoPersonajeActual,
+            volverDeMonumento: true
+        };
+        sessionStorage.setItem('estadoJugadorPlaza', JSON.stringify(estado));
+    } catch (e) {}
+}
+
+function restaurarEstadoJugadorDeSesion() {
+    try {
+        var raw = sessionStorage.getItem('estadoJugadorPlaza');
+        if (!raw) return false;
+        var estado = JSON.parse(raw);
+        if (!estado || !estado.volverDeMonumento) return false;
+
+        player.position.set(estado.x, estado.y, estado.z);
+        player.yaw = estado.yaw;
+        player.pitch = estado.pitch;
+        characterFacingYaw = (estado.facingYaw !== undefined) ? estado.facingYaw : estado.yaw;
+        if (estado.camDist) currentCameraDistance = estado.camDist;
+        if (estado.tipoPersonaje) {
+            tipoPersonajeActual = estado.tipoPersonaje;
+            personajeYaElegido = true;
+        }
+
+        estado.volverDeMonumento = false;
+        sessionStorage.setItem('estadoJugadorPlaza', JSON.stringify(estado));
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+window.abrirMonumentoInstantaneo = function(enlaceUrl) {
+    if (!enlaceUrl) return;
+
+    guardarEstadoJugadorEnSesion();
+
+    keys = {};
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+
+    var musicaEstabaSonando = false;
+    if (sound && sound.isPlaying) {
+        musicaEstabaSonando = true;
+        sound.pause();
+    }
+
+    if (!monumentoIframeOverlay) {
+        monumentoIframeOverlay = document.createElement('div');
+        monumentoIframeOverlay.id = 'monumento-overlay-instantaneo';
+        monumentoIframeOverlay.style.cssText = 'position:fixed; inset:0; width:100vw; height:100vh; background:#120d0a; z-index:999999; display:none; border:none; margin:0; padding:0;';
+        
+        var iframe = document.createElement('iframe');
+        iframe.id = 'monumento-iframe-visor';
+        iframe.style.cssText = 'width:100%; height:100%; border:none; display:block;';
+        iframe.setAttribute('allow', 'autoplay; fullscreen');
+        monumentoIframeOverlay.appendChild(iframe);
+        document.body.appendChild(monumentoIframeOverlay);
+
+        iframe.addEventListener('load', function() {
+            try {
+                var idoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                if (!idoc) return;
+
+                var elementos = idoc.querySelectorAll('a, button');
+                for (var i = 0; i < elementos.length; i++) {
+                    var el = elementos[i];
+                    var txt = (el.innerText || el.textContent || '').toUpperCase();
+                    var href = (el.getAttribute('href') || '').toLowerCase();
+                    if (txt.indexOf('VOLVER') !== -1 || href.indexOf('index') !== -1 || href.indexOf('plaza') !== -1 || href.indexOf('modelo') !== -1) {
+                        el.addEventListener('click', function(ev) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            window.cerrarMonumentoInstantaneo();
+                        });
+                    }
+                }
+
+                idoc.addEventListener('keydown', function(ev) {
+                    if (ev.code === 'Escape') {
+                        ev.preventDefault();
+                        window.cerrarMonumentoInstantaneo();
+                    }
+                });
+            } catch (err) {}
+        });
+    }
+
+    var visor = document.getElementById('monumento-iframe-visor');
+    if (visor) {
+        visor.dataset.reanudarMusica = musicaEstabaSonando ? '1' : '0';
+        visor.src = enlaceUrl;
+    }
+
+    monumentoIframeOverlay.style.display = 'block';
+    monumentoModalActivo = true;
+
+    try {
+        history.pushState({ monumentoAbierto: true }, '', '#' + enlaceUrl.replace('.html', ''));
+    } catch (e) {}
+};
+
+window.cerrarMonumentoInstantaneo = function(desdePopState) {
+    if (!monumentoModalActivo) return;
+    monumentoModalActivo = false;
+
+    var visor = document.getElementById('monumento-iframe-visor');
+    var reanudar = visor && visor.dataset.reanudarMusica === '1';
+    if (visor) {
+        visor.src = 'about:blank';
+    }
+    if (monumentoIframeOverlay) {
+        monumentoIframeOverlay.style.display = 'none';
+    }
+
+    if (reanudar && sound && !sound.isPlaying && sound.buffer) {
+        sound.play();
+    }
+
+    if (!desdePopState && window.location.hash) {
+        try {
+            history.back();
+        } catch (e) {}
+    }
+
+    clock.getDelta();
+    placeCharacterAndCamera(clock.getElapsedTime());
+};
+
+window.addEventListener('popstate', function() {
+    if (monumentoModalActivo) {
+        window.cerrarMonumentoInstantaneo(true);
+    }
+});
+
+// ====================================================
+// MEJORA DE NITIDEZ DE TEXTURAS (FILTRADO ANISOTRÓPICO MÁXIMO)
 // ====================================================
 function mejorarCalidadMaterial(material) {
     if (!material) return;
@@ -158,11 +896,11 @@ function mejorarCalidadMaterial(material) {
 }
 
 // ====================================================
-// REGISTRO SEGURO DE COLISIONES
+// REGISTRO SEGURO DE COLISIONES + CONGELAMIENTO DE MATRICES
 // ====================================================
 function registrarParaColision(objeto, esMuro) {
     if (!objeto) return;
-    objeto.updateMatrixWorld(true);
+    congelarObjetoEstatico(objeto);
     objeto.traverse(function(child) {
         if (child && child.isMesh && child.geometry) {
             collisionMeshes.push(child);
@@ -242,10 +980,16 @@ window.iniciarTourPlaza = function(mostrarUI) {
     if (document.pointerLockElement) {
         document.exitPointerLock();
     }
+    if (selectorPersonajeModalEl) {
+        selectorPersonajeModalEl.style.display = 'none';
+        seleccionPersonajeActiva = false;
+    }
 
     tourCurves = construirCurvasTourPlaza();
     tourElapsed = 0;
     tourActivo = true;
+
+    characterGroup.visible = personajeYaElegido;
 
     camera.position.copy(tourCurves.positions.getPoint(0));
     camera.lookAt(tourCurves.looks.getPoint(0));
@@ -255,11 +999,24 @@ window.iniciarTourPlaza = function(mostrarUI) {
     if (hudPromptEl) hudPromptEl.style.display = 'none';
 };
 
-window.terminarTourPlaza = function() {
+window.terminarTourPlaza = function(omitirSelector) {
     tourActivo = false;
     if (tourOverlayEl) tourOverlayEl.style.display = 'none';
-    if (hudGuiaEl) hudGuiaEl.style.opacity = '1';
     placeCharacterAndCamera(clock.getElapsedTime());
+
+    if (composer && filmPass && filmPass.enabled) {
+        composer.render();
+    } else if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+    }
+
+    if (!personajeYaElegido && !omitirSelector) {
+        characterGroup.visible = false;
+        window.mostrarSelectorPersonaje();
+    } else {
+        characterGroup.visible = true;
+        if (hudGuiaEl) hudGuiaEl.style.opacity = '1';
+    }
 };
 
 // ====================================================
@@ -332,7 +1089,7 @@ function crearMinimapaRadar() {
     document.body.appendChild(minimapContainerEl);
 
     minimapCanvas.addEventListener('click', function(e) {
-        if (tourActivo || window.historiaEnCurso) return;
+        if (tourActivo || window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva) return;
 
         var rect = minimapCanvas.getBoundingClientRect();
         var clickX = e.clientX - rect.left;
@@ -395,7 +1152,7 @@ function actualizarMinimapaRadar(time) {
     var pantallaBienvenida = document.getElementById('pantalla-bienvenida');
     var splashVisible = pantallaBienvenida && window.getComputedStyle(pantallaBienvenida).display !== 'none';
     if (minimapContainerEl) {
-        minimapContainerEl.style.opacity = (splashVisible || window.historiaEnCurso) ? '0.2' : '1';
+        minimapContainerEl.style.opacity = (splashVisible || window.historiaEnCurso || seleccionPersonajeActiva) ? '0.2' : '1';
     }
 
     var w = minimapCanvas.width;
@@ -501,7 +1258,7 @@ function actualizarMinimapaRadar(time) {
 // 5. MODO FOTOGRAFÍA / POSTAL TURÍSTICA (TECLA P)
 // ====================================================
 window.tomarFotoPostal = function() {
-    if (!renderer || !scene || !camera) return;
+    if (!renderer || !scene || !camera || monumentoModalActivo) return;
 
     if (composer && filmPass && filmPass.enabled) {
         composer.render();
@@ -629,6 +1386,20 @@ function crearHUDGuia() {
 
     var contenedorBotones = document.querySelector('.botones-container');
     if (contenedorBotones) {
+        if (!document.getElementById('btn-cambiar-personaje')) {
+            var btnChar = document.createElement('button');
+            btnChar.id = 'btn-cambiar-personaje';
+            btnChar.className = 'btn-fotografias';
+            btnChar.style.borderColor = '#38bdf8';
+            btnChar.style.color = '#7dd3fc';
+            btnChar.innerHTML = '👷 PERSONAJE (C)';
+            btnChar.onclick = function(e) {
+                e.stopPropagation();
+                if (!tourActivo) window.mostrarSelectorPersonaje();
+            };
+            contenedorBotones.insertBefore(btnChar, contenedorBotones.firstChild);
+        }
+
         if (!document.getElementById('btn-iniciar-tour')) {
             var btnTour = document.createElement('button');
             btnTour.id = 'btn-iniciar-tour';
@@ -666,6 +1437,7 @@ function crearHUDGuia() {
             '<li><strong>Mouse / Q, E:</strong> Girar vista</li>' +
             '<li><strong>Rueda ratón:</strong> Zoom cámara</li>' +
             '<li><strong>Tecla F:</strong> Interactuar / Historia</li>' +
+            '<li><strong>Tecla C:</strong> Cambiar Personaje</li>' +
             '<li><strong>Tecla P:</strong> Tomar Foto Postal</li>' +
             '<li><strong>Tecla T:</strong> Vuelo por la Plaza</li>' +
             '<li><strong>Tecla Z:</strong> Volver al Inicio</li>' +
@@ -673,6 +1445,7 @@ function crearHUDGuia() {
     }
 
     crearMinimapaRadar();
+    crearModalSeleccionPersonaje();
 }
 
 var _ultimoTextoHud = "";
@@ -731,7 +1504,7 @@ function construirEstacionesYCamino() {
             side: THREE.DoubleSide,
             depthWrite: false
         });
-        var ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3.4, 40), ringMat);
+        var ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3.4, 36), ringMat);
         ring.rotation.x = -Math.PI / 2;
 
         var beamMat = new THREE.MeshBasicMaterial({
@@ -741,7 +1514,7 @@ function construirEstacionesYCamino() {
             side: THREE.DoubleSide,
             depthWrite: false
         });
-        var beam = new THREE.Mesh(new THREE.CircleGeometry(2.5, 32), beamMat);
+        var beam = new THREE.Mesh(new THREE.CircleGeometry(2.5, 28), beamMat);
         beam.rotation.x = -Math.PI / 2;
 
         g.add(ring);
@@ -768,7 +1541,7 @@ function construirEstacionesYCamino() {
     });
 
     var curvaCamino = new THREE.CatmullRomCurve3(puntosCamino);
-    var puntosSuaves = curvaCamino.getPoints(160);
+    var puntosSuaves = curvaCamino.getPoints(140);
     var lineaGeo = new THREE.BufferGeometry().setFromPoints(puntosSuaves);
     var lineaMat = new THREE.LineDashedMaterial({
         color: 0xfde047,
@@ -804,204 +1577,12 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// ELIMINACIÓN DEL BUCLE QUE RETROCEDE (COMPATIBLE CON r108)
-// ====================================================
-function eliminarRetrocesoMixamoEnClip(clip) {
-    if (!clip || !clip.tracks) return;
-    clip.tracks.forEach(function(track) {
-        if (/\.position$/i.test(track.name) && track.values && track.values.length >= 3) {
-            var baseX = track.values[0];
-            var baseY = track.values[1];
-            var baseZ = track.values[2];
-            for (var i = 0; i < track.values.length; i += 3) {
-                track.values[i] = baseX;
-                track.values[i + 1] = baseY + (track.values[i + 1] - baseY) * 0.2;
-                track.values[i + 2] = baseZ;
-            }
-        }
-    });
-}
-
-function fijarCaderaEnElSitio() {
-    if (rigBones.hips && rigBones.hipsRestPos) {
-        rigBones.hips.position.x = rigBones.hipsRestPos.x;
-        rigBones.hips.position.z = rigBones.hipsRestPos.z;
-    }
-}
-
-function normalizarTamanoYCentrarMinero(model) {
-    model.position.set(0, 0, 0);
-    model.scale.set(1, 1, 1);
-    model.updateMatrixWorld(true);
-
-    var minX = Infinity, maxX = -Infinity;
-    var minY = Infinity, maxY = -Infinity;
-    var minZ = Infinity, maxZ = -Infinity;
-
-    model.traverse(function(child) {
-        if (child && child.isMesh && child.geometry) {
-            var posAttr = child.geometry.attributes && child.geometry.attributes.position;
-            if (posAttr && typeof posAttr.getX === 'function') {
-                var v = new THREE.Vector3();
-                var stride = Math.max(1, Math.floor(posAttr.count / 500));
-                for (var i = 0; i < posAttr.count; i += stride) {
-                    v.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
-                    v.applyMatrix4(child.matrixWorld);
-                    if (v.x < minX) minX = v.x;
-                    if (v.x > maxX) maxX = v.x;
-                    if (v.y < minY) minY = v.y;
-                    if (v.y > maxY) maxY = v.y;
-                    if (v.z < minZ) minZ = v.z;
-                    if (v.z > maxZ) maxZ = v.z;
-                }
-            }
-        }
-    });
-
-    var boneMinY = Infinity, boneMaxY = -Infinity;
-    model.traverse(function(node) {
-        if (node && (node.isBone || node.type === 'Bone')) {
-            var bp = new THREE.Vector3();
-            node.getWorldPosition(bp);
-            if (bp.y < boneMinY) boneMinY = bp.y;
-            if (bp.y > boneMaxY) boneMaxY = bp.y;
-        }
-    });
-
-    var altoVertices = (isFinite(maxY) && isFinite(minY)) ? (maxY - minY) : 0;
-    var altoHuesos = (isFinite(boneMaxY) && isFinite(boneMinY)) ? (boneMaxY - boneMinY) * 1.15 : 0;
-    var alturaActual = Math.max(altoVertices, altoHuesos);
-    if (alturaActual < 0.001) alturaActual = 100;
-
-    var factorEscala = CONFIG_PLAYER.alturaDeseadaPersonaje / alturaActual;
-    model.scale.setScalar(factorEscala);
-    model.updateMatrixWorld(true);
-
-    var boneMinY2 = Infinity;
-    model.traverse(function(node) {
-        if (node && (node.isBone || node.type === 'Bone')) {
-            var bp = new THREE.Vector3();
-            node.getWorldPosition(bp);
-            if (bp.y < boneMinY2) boneMinY2 = bp.y;
-        }
-    });
-
-    var minX2 = Infinity, maxX2 = -Infinity;
-    var minY2 = Infinity, maxY2 = -Infinity;
-    var minZ2 = Infinity, maxZ2 = -Infinity;
-
-    model.traverse(function(child) {
-        if (child && child.isMesh && child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
-            var posAttr = child.geometry.attributes.position;
-            if (typeof posAttr.getX === 'function') {
-                var v = new THREE.Vector3();
-                var stride = Math.max(1, Math.floor(posAttr.count / 500));
-                for (var i = 0; i < posAttr.count; i += stride) {
-                    v.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
-                    v.applyMatrix4(child.matrixWorld);
-                    if (v.x < minX2) minX2 = v.x;
-                    if (v.x > maxX2) maxX2 = v.x;
-                    if (v.y < minY2) minY2 = v.y;
-                    if (v.y > maxY2) maxY2 = v.y;
-                    if (v.z < minZ2) minZ2 = v.z;
-                    if (v.z > maxZ2) maxZ2 = v.z;
-                }
-            }
-        }
-    });
-
-    var basePies = isFinite(boneMinY2) ? boneMinY2 : (isFinite(minY2) ? minY2 : 0);
-    var centroX = isFinite(minX2) ? (minX2 + maxX2) * 0.5 : 0;
-    var centroZ = isFinite(minZ2) ? (minZ2 + maxZ2) * 0.5 : 0;
-    model.position.set(-centroX, -basePies, -centroZ);
-}
-
-function mapearHuesosPersonaje(model) {
-    model.traverse(function(node) {
-        if (node && (node.isBone || node.type === 'Bone' || /mixamorig|arm|leg|thigh|calf|hips|spine|shoulder/i.test(node.name))) {
-            var n = (node.name || '').toLowerCase();
-
-            if (/leftupleg|upleg_l|thigh_l|l_thigh|leftthigh/i.test(n)) rigBones.leftUpLeg = node;
-            else if (/rightupleg|upleg_r|thigh_r|r_thigh|rightthigh/i.test(n)) rigBones.rightUpLeg = node;
-            else if (/leftleg|leg_l|calf_l|shin_l|l_calf/i.test(n)) rigBones.leftLeg = node;
-            else if (/rightleg|leg_r|calf_r|shin_r|r_calf/i.test(n)) rigBones.rightLeg = node;
-            else if (/leftforearm|forearm_l|lowerarm_l/i.test(n)) rigBones.leftForeArm = node;
-            else if (/rightforearm|forearm_r|lowerarm_r/i.test(n)) rigBones.rightForeArm = node;
-            else if (/leftarm|arm_l|upperarm_l|l_upperarm/i.test(n)) rigBones.leftArm = node;
-            else if (/rightarm|arm_r|upperarm_r|r_upperarm/i.test(n)) rigBones.rightArm = node;
-            else if (/hips|pelvis|root/i.test(n) && !rigBones.hips) {
-                rigBones.hips = node;
-                rigBones.hipsRestPos = node.position.clone();
-            }
-            else if (/spine/i.test(n) && !rigBones.spine) rigBones.spine = node;
-        }
-    });
-
-    ['leftUpLeg', 'rightUpLeg', 'leftLeg', 'rightLeg', 'leftArm', 'rightArm', 'leftForeArm', 'rightForeArm'].forEach(function(k) {
-        var b = rigBones[k];
-        if (b) {
-            b.userData.initRot = b.rotation.clone();
-        }
-    });
-
-    rigBones.restPoseGuardada = !!(rigBones.leftUpLeg || rigBones.rightUpLeg || rigBones.leftArm || rigBones.rightArm);
-}
-
-function actualizarAnimacionMinero(delta, isWalking, isRunning) {
-    var footOffset = CONFIG_PLAYER.characterFootOffset || 0;
-
-    if (characterHasAnimations && characterMixer && characterActions.walk) {
-        characterActions.walk.paused = !isWalking;
-        characterActions.walk.timeScale = isRunning ? 1.45 : 1.0;
-        characterMixer.update(delta);
-        fijarCaderaEnElSitio();
-        characterGroup.position.y = player.position.y + footOffset;
-        return;
-    }
-
-    if (!characterModel) return;
-
-    if (rigBones.restPoseGuardada) {
-        if (rigBones.leftArm && rigBones.leftArm.userData.initRot) {
-            rigBones.leftArm.rotation.z = rigBones.leftArm.userData.initRot.z - 1.1;
-        }
-        if (rigBones.rightArm && rigBones.rightArm.userData.initRot) {
-            rigBones.rightArm.rotation.z = rigBones.rightArm.userData.initRot.z + 1.1;
-        }
-
-        if (isWalking) {
-            walkCycleTime += delta * (isRunning ? 13.0 : 8.5);
-            var s = Math.sin(walkCycleTime);
-            var c = Math.cos(walkCycleTime);
-
-            if (rigBones.leftUpLeg) rigBones.leftUpLeg.rotation.x = rigBones.leftUpLeg.userData.initRot.x + s * 0.65;
-            if (rigBones.rightUpLeg) rigBones.rightUpLeg.rotation.x = rigBones.rightUpLeg.userData.initRot.x - s * 0.65;
-            if (rigBones.leftLeg) rigBones.leftLeg.rotation.x = rigBones.leftLeg.userData.initRot.x + Math.max(0, -c) * 0.55;
-            if (rigBones.rightLeg) rigBones.rightLeg.rotation.x = rigBones.rightLeg.userData.initRot.x + Math.max(0, c) * 0.55;
-            if (rigBones.leftArm) rigBones.leftArm.rotation.x = rigBones.leftArm.userData.initRot.x - s * 0.45;
-            if (rigBones.rightArm) rigBones.rightArm.rotation.x = rigBones.rightArm.userData.initRot.x + s * 0.45;
-
-            characterGroup.position.y = player.position.y + footOffset + Math.abs(c) * 0.12;
-        } else {
-            ['leftUpLeg', 'rightUpLeg', 'leftLeg', 'rightLeg'].forEach(function(k) {
-                if (rigBones[k] && rigBones[k].userData.initRot) {
-                    rigBones[k].rotation.x = rigBones[k].userData.initRot.x;
-                }
-            });
-            if (rigBones.leftArm && rigBones.leftArm.userData.initRot) rigBones.leftArm.rotation.x = rigBones.leftArm.userData.initRot.x;
-            if (rigBones.rightArm && rigBones.rightArm.userData.initRot) rigBones.rightArm.rotation.x = rigBones.rightArm.userData.initRot.x;
-            characterGroup.position.y = player.position.y + footOffset;
-        }
-    }
-}
-
-// ====================================================
 // INICIALIZACIÓN DE LA ESCENA
 // ====================================================
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0014);
+    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0013);
     
     camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.25, 1800);
     camera.position.set(-35, 58, 45);
@@ -1009,9 +1590,29 @@ function init() {
 
     scene.add(characterGroup);
 
-    crearHUDGuia();
-
     var manager = new THREE.LoadingManager();
+
+    // 👉 RENDERER EN ALTA CALIDAD VISUAL
+    renderer = new THREE.WebGLRenderer({ 
+        antialias: true, 
+        powerPreference: "high-performance",
+        precision: "highp"
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0)); 
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15; 
+    renderer.gammaOutput = true;
+    renderer.gammaFactor = 2.2;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
+        maxAnisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    }
+
+    crearHUDGuia();
     
     manager.onProgress = function (url, itemsLoaded, itemsTotal) {
         var progressBar = document.getElementById('progress-bar'); 
@@ -1028,10 +1629,12 @@ function init() {
         var loaderContainer = document.getElementById("loader-container");
         if (loaderContainer) loaderContainer.classList.add("loaded");
 
-        // Actualizar el mapa de sombras 2048x2048 una vez que toda la escena cargó
         if (directionalLight && directionalLight.shadow) {
             directionalLight.shadow.needsUpdate = true;
         }
+
+        var pantallaBienvenida = document.getElementById('pantalla-bienvenida');
+        var volvioDeMonumento = restaurarEstadoJugadorDeSesion();
 
         player.position.y = getFloorHeightBelow(player.position.x, player.position.z, player.position.y);
         characterGroup.position.set(
@@ -1042,9 +1645,17 @@ function init() {
         characterGroup.rotation.y = characterFacingYaw + CONFIG_PLAYER.characterYawOffset;
         window.actualizarHUDProgreso();
 
-        var pantallaBienvenida = document.getElementById('pantalla-bienvenida');
-        var splashVisible = pantallaBienvenida && window.getComputedStyle(pantallaBienvenida).display !== 'none';
+        if (volvioDeMonumento) {
+            if (pantallaBienvenida) {
+                pantallaBienvenida.style.display = 'none';
+            }
+            cargarModeloPersonaje(tipoPersonajeActual, function() {
+                window.terminarTourPlaza(true);
+            });
+            return;
+        }
 
+        var splashVisible = pantallaBienvenida && window.getComputedStyle(pantallaBienvenida).display !== 'none';
         window.iniciarTourPlaza(!splashVisible);
 
         if (pantallaBienvenida) {
@@ -1071,46 +1682,21 @@ function init() {
         sound.setVolume(0.3);
     });
     
-    // 👉 RENDERER EN ALTA CALIDAD VISUAL (PixelRatio hasta 2.0, precisión highp y sombras suaves 2048)
-    renderer = new THREE.WebGLRenderer({ 
-        antialias: true, 
-        powerPreference: "high-performance",
-        precision: "highp"
-    });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0)); 
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12; 
-    renderer.gammaOutput = true;
-    renderer.gammaFactor = 2.2;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.body.appendChild(renderer.domElement);
-
-    if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
-        maxAnisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-    }
-    
     composer = new THREE.EffectComposer(renderer);
     renderPass = new THREE.RenderPass(scene, camera);
     composer.addPass(renderPass);
 
-    // 👉 FilmPass ACTIVADO pero sutil y cinematográfico (sin OutlinePass para ganar máxima fluidez)
     filmPass = new THREE.FilmPass(0.14, 0.02, 1024, false);
-    filmPass.enabled = true;
-    if (filmPass.uniforms && filmPass.uniforms.nIntensity) {
-        filmPass.uniforms.nIntensity.value = 0.07; // Toque cinematográfico ultra limpio en modo día
-        filmPass.uniforms.sIntensity.value = 0.015;
-    }
+    filmPass.enabled = false;
     composer.addPass(filmPass);
     
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.68);
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.70);
     scene.add(ambientLight);
     
-    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.68);
+    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.70);
     scene.add(hemisphereLight);
     
-    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.35);
+    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.38);
     directionalLight.position.set(60, 140, 80);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
@@ -1126,7 +1712,7 @@ function init() {
     directionalLight.shadow.needsUpdate = true;
     scene.add(directionalLight);
     
-    directionalLight2 = new THREE.DirectionalLight(0xaaccff, 0.45);
+    directionalLight2 = new THREE.DirectionalLight(0xaaccff, 0.48);
     directionalLight2.position.set(-60, 40, -60);
     scene.add(directionalLight2);
 
@@ -1152,7 +1738,7 @@ function init() {
             div.style.willChange = 'transform';
             div.innerText = marcador.texto;
             div.onclick = function() {
-                window.location.href = marcador.enlace;
+                window.abrirMonumentoInstantaneo(marcador.enlace);
             };
             etiquetasContainer.appendChild(div);
             marcador.elemento = div;
@@ -1162,7 +1748,7 @@ function init() {
     construirEstacionesYCamino();
     
     // ====================================================
-    // 1. CARGAR PISO.GLB (CON FILTRADO ANISOTRÓPICO PARA TEXTURAS NÍTIDAS)
+    // 1. CARGAR PISO.GLB
     // ====================================================
     cargar.load("assets/piso.glb", function(gltf) {
         plaza = gltf.scene;
@@ -1206,58 +1792,17 @@ function init() {
                 }
             }
         });
+        congelarObjetoEstatico(plaza);
     }, undefined, function(error) {
         console.log("Error cargando piso.glb:", error);
     });
 
     // ====================================================
-    // 1.B CARGAR MINERO (assets/personaje.glb)
+    // 1.B PRE-CARGAR MODELO BASE DEL MINERO
     // ====================================================
     cargar.load("assets/personaje.glb", function(gltf) {
-        while (characterGroup.children.length > 0) {
-            characterGroup.remove(characterGroup.children[0]);
-        }
-
-        var model = gltf.scene;
-        characterModel = model;
-
-        model.traverse(function(child) {
-            if (child && child.isMesh) {
-                child.castShadow = true;
-                child.receiveShadow = true;
-                child.frustumCulled = false;
-                mejorarCalidadMaterial(child.material);
-            }
-        });
-
-        normalizarTamanoYCentrarMinero(model);
-        mapearHuesosPersonaje(model);
-
-        characterGroup.add(model);
-
-        if (gltf.animations && gltf.animations.length > 0) {
-            var clipsConMovimiento = gltf.animations.filter(function(c) {
-                return c.tracks && c.tracks.length > 2 && c.duration > 0.15;
-            });
-
-            if (clipsConMovimiento.length > 0) {
-                characterMixer = new THREE.AnimationMixer(model);
-                var walkClip = clipsConMovimiento[0];
-                for (var i = 0; i < clipsConMovimiento.length; i++) {
-                    if (/walk|caminar|run|mixamo/i.test(clipsConMovimiento[i].name)) {
-                        walkClip = clipsConMovimiento[i];
-                        break;
-                    }
-                }
-
-                eliminarRetrocesoMixamoEnClip(walkClip);
-
-                characterActions.walk = characterMixer.clipAction(walkClip);
-                characterActions.walk.play();
-                characterActions.walk.paused = true;
-                characterHasAnimations = true;
-            }
-        }
+        aplicarGltfAlPersonaje(gltf, 'minero');
+        characterGroup.visible = false;
     }, undefined, function(err) {
         console.error("⚠️ Error al cargar assets/personaje.glb:", err);
     });
@@ -1279,7 +1824,7 @@ function init() {
     }
 
     // ====================================================
-    // 2. MONUMENTOS Y PEDESTALES (SIN OUTLINE)
+    // 2. MONUMENTOS Y PEDESTALES
     // ====================================================
     cargarModeloSeguro("assets/Pedestalirineo.glb", function(est1) { 
         est1.scale.set(3.5, 3.5, 3.5); est1.position.set(-73, 3.5, 22); scene.add(est1); 
@@ -1318,7 +1863,7 @@ function init() {
         function crearPosteConLuz(x, y, z) {
             var posteClonado = modeloBase.clone();
             var luzFoco = new THREE.PointLight(0xffddaa, 0, 70, 2.0); 
-            luzFoco.visible = false; // Apagada en modo día para máxima fluidez
+            luzFoco.visible = false;
             luzFoco.position.set(0, 20, 0); 
             var bolitaLuz = new THREE.Mesh(geometriaEsfera, materialEsfera);
             bolitaLuz.position.set(0, 18, 0);
@@ -1328,6 +1873,7 @@ function init() {
             grupoPoste.add(bolitaLuz);
             grupoPoste.position.set(x, y, z);
             scene.add(grupoPoste);
+            congelarObjetoEstatico(grupoPoste);
             lucesPostes.push(luzFoco);
 
             registrarParaColision(posteClonado, true);
@@ -1362,17 +1908,17 @@ function init() {
     // ====================================================
     cargarModeloSeguro("assets/arbol.glb", function(modeloArbol) {
         modeloArbol.scale.set(35, 35, 35);
-        var obj40 = modeloArbol.clone(); obj40.position.set(-105, 8, 20); scene.add(obj40); agregarObstaculoCircular(-105, 20, 1.8);
-        var obj41 = modeloArbol.clone(); obj41.position.set(-105, 8, -38); scene.add(obj41); agregarObstaculoCircular(-105, -38, 1.8);
-        var obj42 = modeloArbol.clone(); obj42.position.set(-128, 8, -38); scene.add(obj42); agregarObstaculoCircular(-128, -38, 1.8);
-        var obj43 = modeloArbol.clone(); obj43.position.set(-86, 8, -120); scene.add(obj43); agregarObstaculoCircular(-86, -120, 1.8);
+        var obj40 = modeloArbol.clone(); obj40.position.set(-105, 8, 20); scene.add(obj40); congelarObjetoEstatico(obj40); agregarObstaculoCircular(-105, 20, 1.8);
+        var obj41 = modeloArbol.clone(); obj41.position.set(-105, 8, -38); scene.add(obj41); congelarObjetoEstatico(obj41); agregarObstaculoCircular(-105, -38, 1.8);
+        var obj42 = modeloArbol.clone(); obj42.position.set(-128, 8, -38); scene.add(obj42); congelarObjetoEstatico(obj42); agregarObstaculoCircular(-128, -38, 1.8);
+        var obj43 = modeloArbol.clone(); obj43.position.set(-86, 8, -120); scene.add(obj43); congelarObjetoEstatico(obj43); agregarObstaculoCircular(-86, -120, 1.8);
     });
 
     cargarModeloSeguro("assets/planta.glb", function(modeloPlanta) {
         modeloPlanta.scale.set(6, 7, 6);
-        var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); agregarObstaculoCircular(-85, -82, 1.4);
-        var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); agregarObstaculoCircular(-120, -70, 1.4);
-        var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); agregarObstaculoCircular(-123, -147, 1.6);
+        var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); congelarObjetoEstatico(obj40); agregarObstaculoCircular(-85, -82, 1.4);
+        var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); congelarObjetoEstatico(obj41); agregarObstaculoCircular(-120, -70, 1.4);
+        var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); congelarObjetoEstatico(obj42); agregarObstaculoCircular(-123, -147, 1.6);
     });
 
     cargarModeloSeguro("assets/letrasiglo.glb", function(modeloletra) {
@@ -1469,51 +2015,51 @@ function init() {
     // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS
     // ====================================================
     cargarModeloSeguro("assets/planta1.glb", function(modeloplanta1) {
-        var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); agregarObstaculoCircular(-83, -70, 1.2);
-        var obj19 = modeloplanta1.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-105, 7.5, -70); scene.add(obj19); agregarObstaculoCircular(-105, -70, 1.2);
-        var obj20 = modeloplanta1.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-83, 7.5, -40); scene.add(obj20); agregarObstaculoCircular(-83, -40, 1.2);
-        var obj21 = modeloplanta1.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-74, 7.5, -134); scene.add(obj21); agregarObstaculoCircular(-74, -134, 1.2);
-        var obj22 = modeloplanta1.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-103, 7.5, -134); scene.add(obj22); agregarObstaculoCircular(-103, -134, 1.2);
-        var obj23 = modeloplanta1.clone(); obj23.scale.set(8, 8, 8); obj23.position.set(-121, 7.5, -134); scene.add(obj23); agregarObstaculoCircular(-121, -134, 1.2);
+        var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-83, -70, 1.2);
+        var obj19 = modeloplanta1.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-105, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-105, -70, 1.2);
+        var obj20 = modeloplanta1.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-83, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-83, -40, 1.2);
+        var obj21 = modeloplanta1.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-74, 7.5, -134); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-74, -134, 1.2);
+        var obj22 = modeloplanta1.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-103, 7.5, -134); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-103, -134, 1.2);
+        var obj23 = modeloplanta1.clone(); obj23.scale.set(8, 8, 8); obj23.position.set(-121, 7.5, -134); scene.add(obj23); congelarObjetoEstatico(obj23); agregarObstaculoCircular(-121, -134, 1.2);
     });
 
     cargarModeloSeguro("assets/planta3.glb", function(modeloplanta3) {
-        var obj18 = modeloplanta3.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -76.5); scene.add(obj18); agregarObstaculoCircular(-83, -76.5, 1.1);
-        var obj19 = modeloplanta3.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-113, 7.5, -70); scene.add(obj19); agregarObstaculoCircular(-113, -70, 1.1);
-        var obj20 = modeloplanta3.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-90, 7.5, -40); scene.add(obj20); agregarObstaculoCircular(-90, -40, 1.1);
-        var obj21 = modeloplanta3.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-68, 7.5, -33); scene.add(obj21); agregarObstaculoCircular(-68, -33, 1.1);
-        var obj22 = modeloplanta3.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-68, 7.5, -42); scene.add(obj22); agregarObstaculoCircular(-68, -42, 1.1);
-        var obj23 = modeloplanta3.clone(); obj23.scale.set(7, 7, 7); obj23.position.set(-68, 7.5, 17); scene.add(obj23); agregarObstaculoCircular(-68, 17, 1.1);
-        var obj24 = modeloplanta3.clone(); obj24.scale.set(7, 7, 7); obj24.position.set(-68, 7.5, 25); scene.add(obj24); agregarObstaculoCircular(-68, 25, 1.1);
-        var obj25 = modeloplanta3.clone(); obj25.scale.set(7, 7, 7); obj25.position.set(-68, 7.5, 7); scene.add(obj25); agregarObstaculoCircular(-68, 7, 1.1);
-        var obj26 = modeloplanta3.clone(); obj26.scale.set(7, 7, 7); obj26.position.set(-102, 7.5, -146); scene.add(obj26); agregarObstaculoCircular(-102, -146, 1.1);
-        var obj27 = modeloplanta3.clone(); obj27.scale.set(7, 7, 7); obj27.position.set(-68, 7.5, -120); scene.add(obj27); agregarObstaculoCircular(-68, -120, 1.1);
+        var obj18 = modeloplanta3.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -76.5); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-83, -76.5, 1.1);
+        var obj19 = modeloplanta3.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-113, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-113, -70, 1.1);
+        var obj20 = modeloplanta3.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-90, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-90, -40, 1.1);
+        var obj21 = modeloplanta3.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-68, 7.5, -33); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-68, -33, 1.1);
+        var obj22 = modeloplanta3.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-68, 7.5, -42); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-68, -42, 1.1);
+        var obj23 = modeloplanta3.clone(); obj23.scale.set(7, 7, 7); obj23.position.set(-68, 7.5, 17); scene.add(obj23); congelarObjetoEstatico(obj23); agregarObstaculoCircular(-68, 17, 1.1);
+        var obj24 = modeloplanta3.clone(); obj24.scale.set(7, 7, 7); obj24.position.set(-68, 7.5, 25); scene.add(obj24); congelarObjetoEstatico(obj24); agregarObstaculoCircular(-68, 25, 1.1);
+        var obj25 = modeloplanta3.clone(); obj25.scale.set(7, 7, 7); obj25.position.set(-68, 7.5, 7); scene.add(obj25); congelarObjetoEstatico(obj25); agregarObstaculoCircular(-68, 7, 1.1);
+        var obj26 = modeloplanta3.clone(); obj26.scale.set(7, 7, 7); obj26.position.set(-102, 7.5, -146); scene.add(obj26); congelarObjetoEstatico(obj26); agregarObstaculoCircular(-102, -146, 1.1);
+        var obj27 = modeloplanta3.clone(); obj27.scale.set(7, 7, 7); obj27.position.set(-68, 7.5, -120); scene.add(obj27); congelarObjetoEstatico(obj27); agregarObstaculoCircular(-68, -120, 1.1);
     });
 
     cargarModeloSeguro("assets/otroarbolito.glb", function(modeloarbolito2) {
-        var obj18 = modeloarbolito2.clone(); obj18.scale.set(2, 2, 2); obj18.position.set(-70, 7.5, -63); scene.add(obj18); agregarObstaculoCircular(-70, -63, 1.3);
-        var obj19 = modeloarbolito2.clone(); obj19.scale.set(2, 2, 2); obj19.position.set(-100, 7.5, -64); scene.add(obj19); agregarObstaculoCircular(-100, -64, 1.3);
-        var obj20 = modeloarbolito2.clone(); obj20.scale.set(4, 4, 4); obj20.position.set(-140, 7.5, -25); scene.add(obj20); agregarObstaculoCircular(-140, -25, 1.6);
-        var obj21 = modeloarbolito2.clone(); obj21.scale.set(2, 2, 2); obj21.position.set(-85, 7.5, 10); scene.add(obj21); agregarObstaculoCircular(-85, 10, 1.3);
-        var obj22 = modeloarbolito2.clone(); obj22.scale.set(1.8, 1.8, 1.8); obj22.position.set(-68, 7.5, -124); scene.add(obj22); agregarObstaculoCircular(-68, -124, 1.3);
-        var obj23 = modeloarbolito2.clone(); obj23.scale.set(1.8, 1.8, 1.8); obj23.position.set(-103, 7.5, -122); scene.add(obj23); agregarObstaculoCircular(-103, -122, 1.3);
-        var obj24 = modeloarbolito2.clone(); obj24.scale.set(4, 4, 4); obj24.position.set(-140, 7.5, 15); scene.add(obj24); agregarObstaculoCircular(-140, 15, 1.6);
+        var obj18 = modeloarbolito2.clone(); obj18.scale.set(2, 2, 2); obj18.position.set(-70, 7.5, -63); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-70, -63, 1.3);
+        var obj19 = modeloarbolito2.clone(); obj19.scale.set(2, 2, 2); obj19.position.set(-100, 7.5, -64); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-100, -64, 1.3);
+        var obj20 = modeloarbolito2.clone(); obj20.scale.set(4, 4, 4); obj20.position.set(-140, 7.5, -25); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-140, -25, 1.6);
+        var obj21 = modeloarbolito2.clone(); obj21.scale.set(2, 2, 2); obj21.position.set(-85, 7.5, 10); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-85, 10, 1.3);
+        var obj22 = modeloarbolito2.clone(); obj22.scale.set(1.8, 1.8, 1.8); obj22.position.set(-68, 7.5, -124); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-68, -124, 1.3);
+        var obj23 = modeloarbolito2.clone(); obj23.scale.set(1.8, 1.8, 1.8); obj23.position.set(-103, 7.5, -122); scene.add(obj23); congelarObjetoEstatico(obj23); agregarObstaculoCircular(-103, -122, 1.3);
+        var obj24 = modeloarbolito2.clone(); obj24.scale.set(4, 4, 4); obj24.position.set(-140, 7.5, 15); scene.add(obj24); congelarObjetoEstatico(obj24); agregarObstaculoCircular(-140, 15, 1.6);
     });
 
     cargarModeloSeguro("assets/otroarbolito1.glb", function(modeloarbolito3) {
-        var obj18 = modeloarbolito3.clone(); obj18.scale.set(0.05, 0.05, 0.05); obj18.position.set(-75, 7.5, -83); scene.add(obj18); agregarObstaculoCircular(-75, -83, 1.3);
-        var obj19 = modeloarbolito3.clone(); obj19.scale.set(0.05, 0.05, 0.05); obj19.position.set(-104, 7.5, -78); scene.add(obj19); agregarObstaculoCircular(-104, -78, 1.3);
-        var obj20 = modeloarbolito3.clone(); obj20.scale.set(0.05, 0.05, 0.05); obj20.position.set(-140, 7.5, -18); scene.add(obj20); agregarObstaculoCircular(-140, -18, 1.3);
-        var obj21 = modeloarbolito3.clone(); obj21.scale.set(0.05, 0.05, 0.05); obj21.position.set(-80, 7.5, 15); scene.add(obj21); agregarObstaculoCircular(-80, 15, 1.3);
-        var obj22 = modeloarbolito3.clone(); obj22.scale.set(0.05, 0.05, 0.05); obj22.position.set(-74, 7.5, -128); scene.add(obj22); agregarObstaculoCircular(-74, -128, 1.3);
+        var obj18 = modeloarbolito3.clone(); obj18.scale.set(0.05, 0.05, 0.05); obj18.position.set(-75, 7.5, -83); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-75, -83, 1.3);
+        var obj19 = modeloarbolito3.clone(); obj19.scale.set(0.05, 0.05, 0.05); obj19.position.set(-104, 7.5, -78); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-104, -78, 1.3);
+        var obj20 = modeloarbolito3.clone(); obj20.scale.set(0.05, 0.05, 0.05); obj20.position.set(-140, 7.5, -18); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-140, -18, 1.3);
+        var obj21 = modeloarbolito3.clone(); obj21.scale.set(0.05, 0.05, 0.05); obj21.position.set(-80, 7.5, 15); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-80, 15, 1.3);
+        var obj22 = modeloarbolito3.clone(); obj22.scale.set(0.05, 0.05, 0.05); obj22.position.set(-74, 7.5, -128); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-74, -128, 1.3);
     });
 
     cargarModeloSeguro("assets/arbol1.glb", function(modeloarbol1) {
         modeloarbol1.scale.set(600, 600, 600);
-        var pilar22 = modeloarbol1.clone(); pilar22.position.set(-103, 5, -82); scene.add(pilar22); agregarObstaculoCircular(-103, -82, 1.6);
-        var pilar23 = modeloarbol1.clone(); pilar23.position.set(-123, 5, -82); scene.add(pilar23); agregarObstaculoCircular(-123, -82, 1.6);
-        var pilar24 = modeloarbol1.clone(); pilar24.position.set(-85, 5, -145); scene.add(pilar24); agregarObstaculoCircular(-85, -145, 1.6);
-        var pilar25 = modeloarbol1.clone(); pilar25.position.set(-121, 5, -120); scene.add(pilar25); agregarObstaculoCircular(-121, -120, 1.6);
+        var pilar22 = modeloarbol1.clone(); pilar22.position.set(-103, 5, -82); scene.add(pilar22); congelarObjetoEstatico(pilar22); agregarObstaculoCircular(-103, -82, 1.6);
+        var pilar23 = modeloarbol1.clone(); pilar23.position.set(-123, 5, -82); scene.add(pilar23); congelarObjetoEstatico(pilar23); agregarObstaculoCircular(-123, -82, 1.6);
+        var pilar24 = modeloarbol1.clone(); pilar24.position.set(-85, 5, -145); scene.add(pilar24); congelarObjetoEstatico(pilar24); agregarObstaculoCircular(-85, -145, 1.6);
+        var pilar25 = modeloarbol1.clone(); pilar25.position.set(-121, 5, -120); scene.add(pilar25); congelarObjetoEstatico(pilar25); agregarObstaculoCircular(-121, -120, 1.6);
     });
 
     // ====================================================
@@ -1541,14 +2087,14 @@ function init() {
     });
 
     cargarModeloSeguro("assets/llantamaseta.glb", function(modelomaseta) {
-        var obj18 = modelomaseta.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-80, 7.5, 23); scene.add(obj18); agregarObstaculoCircular(-80, 23, 1.5);
-        var obj19 = modelomaseta.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-118, 7.5, -40); scene.add(obj19); agregarObstaculoCircular(-118, -40, 1.5);
-        var obj20 = modelomaseta.clone(); obj20.scale.set(6, 6, 6); obj20.position.set(-86, 7.5, -33.5); scene.add(obj20); agregarObstaculoCircular(-86, -33.5, 1.4);
+        var obj18 = modelomaseta.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-80, 7.5, 23); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-80, 23, 1.5);
+        var obj19 = modelomaseta.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-118, 7.5, -40); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-118, -40, 1.5);
+        var obj20 = modelomaseta.clone(); obj20.scale.set(6, 6, 6); obj20.position.set(-86, 7.5, -33.5); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-86, -33.5, 1.4);
     });
 
     cargarModeloSeguro("assets/otromasetallanta.glb", function(modelomasetaotro) {
-        var obj18 = modelomasetaotro.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-88, 7.5, 20); scene.add(obj18); agregarObstaculoCircular(-88, 20, 1.5);
-        var obj19 = modelomasetaotro.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-138, 7.5, -35); scene.add(obj19); agregarObstaculoCircular(-138, -35, 1.5);
+        var obj18 = modelomasetaotro.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-88, 7.5, 20); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-88, 20, 1.5);
+        var obj19 = modelomasetaotro.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-138, 7.5, -35); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-138, -35, 1.5);
     });
 
     cargarModeloSeguro("assets/barandadorada.glb", function(modelodorado) {
@@ -1574,6 +2120,11 @@ function lerpAngle(a, b, t) {
 var _cameraRaycaster = new THREE.Raycaster();
 var _cameraLookTarget = new THREE.Vector3();
 var _historiaCamPosAnimada = new THREE.Vector3();
+var _targetPointTemp = new THREE.Vector3();
+var _camDirTemp = new THREE.Vector3();
+var _desiredCamPosTemp = new THREE.Vector3();
+var _rayDirTemp = new THREE.Vector3();
+var _lastSafeCamDist = null;
 
 function placeCharacterAndCamera(elapsedTime) {
     characterGroup.position.x = player.position.x;
@@ -1593,7 +2144,7 @@ function placeCharacterAndCamera(elapsedTime) {
         return;
     }
 
-    var targetPoint = new THREE.Vector3(
+    _targetPointTemp.set(
         player.position.x,
         player.position.y + CONFIG_PLAYER.cameraLookHeight,
         player.position.z
@@ -1602,35 +2153,41 @@ function placeCharacterAndCamera(elapsedTime) {
     var horizDist = currentCameraDistance * Math.cos(player.pitch);
     var vertOffset = currentCameraDistance * Math.sin(player.pitch) + (CONFIG_PLAYER.cameraHeight - CONFIG_PLAYER.cameraLookHeight);
 
-    var camDir = new THREE.Vector3(
+    _camDirTemp.set(
         Math.sin(player.yaw) * horizDist,
         vertOffset,
         Math.cos(player.yaw) * horizDist
     );
 
-    var desiredCamPos = targetPoint.clone().add(camDir);
+    _desiredCamPosTemp.copy(_targetPointTemp).add(_camDirTemp);
 
-    if (cameraBlockMeshes.length > 0) {
-        var rayDir = camDir.clone().normalize();
-        var maxDist = camDir.length();
-        _cameraRaycaster.set(targetPoint, rayDir);
-        _cameraRaycaster.near = 0.5;
-        _cameraRaycaster.far = maxDist;
-        var hits = _cameraRaycaster.intersectObjects(cameraBlockMeshes, false);
-        if (hits.length > 0 && hits[0].distance < maxDist) {
-            var safeDist = Math.max(CONFIG_PLAYER.cameraMinDistance, hits[0].distance - CONFIG_PLAYER.cameraCollisionBuffer);
-            desiredCamPos.copy(targetPoint).addScaledVector(rayDir, safeDist);
+    if (cameraBlockMeshes.length > 0 && (_frameCounter % 2 === 0 || _lastSafeCamDist !== null)) {
+        var maxDist = _camDirTemp.length();
+        _rayDirTemp.copy(_camDirTemp).divideScalar(maxDist || 1);
+        if (_frameCounter % 2 === 0) {
+            _cameraRaycaster.set(_targetPointTemp, _rayDirTemp);
+            _cameraRaycaster.near = 0.5;
+            _cameraRaycaster.far = maxDist;
+            var hits = _cameraRaycaster.intersectObjects(cameraBlockMeshes, false);
+            if (hits.length > 0 && hits[0].distance < maxDist) {
+                _lastSafeCamDist = Math.max(CONFIG_PLAYER.cameraMinDistance, hits[0].distance - CONFIG_PLAYER.cameraCollisionBuffer);
+            } else {
+                _lastSafeCamDist = null;
+            }
+        }
+        if (_lastSafeCamDist !== null) {
+            _desiredCamPosTemp.copy(_targetPointTemp).addScaledVector(_rayDirTemp, _lastSafeCamDist);
         }
     }
 
-    desiredCamPos.x = Math.max(CONFIG_PLAYER.bounds.minX - 6, Math.min(CONFIG_PLAYER.bounds.maxX + 6, desiredCamPos.x));
-    desiredCamPos.z = Math.max(CONFIG_PLAYER.bounds.minZ - 6, Math.min(CONFIG_PLAYER.bounds.maxZ + 6, desiredCamPos.z));
-    if (desiredCamPos.y < player.position.y + 2.2) {
-        desiredCamPos.y = player.position.y + 2.2;
+    _desiredCamPosTemp.x = Math.max(CONFIG_PLAYER.bounds.minX - 6, Math.min(CONFIG_PLAYER.bounds.maxX + 6, _desiredCamPosTemp.x));
+    _desiredCamPosTemp.z = Math.max(CONFIG_PLAYER.bounds.minZ - 6, Math.min(CONFIG_PLAYER.bounds.maxZ + 6, _desiredCamPosTemp.z));
+    if (_desiredCamPosTemp.y < player.position.y + 2.2) {
+        _desiredCamPosTemp.y = player.position.y + 2.2;
     }
 
-    camera.position.copy(desiredCamPos);
-    camera.lookAt(targetPoint);
+    camera.position.copy(_desiredCamPosTemp);
+    camera.lookAt(_targetPointTemp);
 }
 
 var _floorRaycaster = new THREE.Raycaster();
@@ -1641,13 +2198,12 @@ function getFloorHeightBelow(x, z, currentY, moveDir) {
     var refY = (currentY !== undefined) ? currentY : player.position.y;
     if (floorMeshes.length === 0) return Math.max(CONFIG_PLAYER.minSafetyY, refY);
 
-    var puntosMuestreo = [
-        [0, 0],
-        [0.85, 0], [-0.85, 0],
-        [0, 0.85], [0, -0.85]
-    ];
+    var puntosMuestreo = [[0, 0]];
     if (moveDir && (Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.z) > 0.01)) {
+        puntosMuestreo.push([moveDir.x * 0.75, moveDir.z * 0.75]);
         puntosMuestreo.push([moveDir.x * 1.4, moveDir.z * 1.4]);
+    } else {
+        puntosMuestreo.push([0.65, 0], [-0.65, 0]);
     }
 
     var rayStartY = refY + CONFIG_PLAYER.maxStepUp;
@@ -1679,8 +2235,12 @@ function getFloorHeightBelow(x, z, currentY, moveDir) {
 }
 
 var _wallRaycaster = new THREE.Raycaster();
-var _wallCheckHeights = [1.8, 3.4];
+var _wallCheckHeights = [2.4];
 var _wallNormal2D = new THREE.Vector3();
+var _moveDirNormTemp = new THREE.Vector3();
+var _slideVecTemp = new THREE.Vector3();
+var _slideDirTemp = new THREE.Vector3();
+var _zeroVecTemp = new THREE.Vector3(0, 0, 0);
 
 function raycastWalls(feetPos, dir, distance) {
     if (wallMeshes.length === 0 || distance <= 0.0001) return null;
@@ -1718,14 +2278,14 @@ function resolverObstaculosCirculares(pos) {
 
 function tryMoveHorizontal(feetPos, moveVec) {
     var distance = Math.hypot(moveVec.x, moveVec.z);
-    if (distance < 0.0001) return moveVec.clone();
+    if (distance < 0.0001) return moveVec;
 
-    var dir = new THREE.Vector3(moveVec.x, 0, moveVec.z).normalize();
+    _moveDirNormTemp.set(moveVec.x / distance, 0, moveVec.z / distance);
     var checkDist = distance + CONFIG_PLAYER.wallCollisionBuffer;
-    var hit = raycastWalls(feetPos, dir, checkDist);
+    var hit = raycastWalls(feetPos, _moveDirNormTemp, checkDist);
 
     if (!hit || hit.distance >= distance + CONFIG_PLAYER.wallCollisionBuffer * 0.5) {
-        return moveVec.clone();
+        return moveVec;
     }
 
     if (hit.face) {
@@ -1733,22 +2293,28 @@ function tryMoveHorizontal(feetPos, moveVec) {
         _wallNormal2D.y = 0;
         if (_wallNormal2D.lengthSq() >= 0.0001) {
             _wallNormal2D.normalize();
-            var slideVec = moveVec.clone().sub(_wallNormal2D.clone().multiplyScalar(moveVec.dot(_wallNormal2D)));
-            var slideDist = Math.hypot(slideVec.x, slideVec.z);
+            var dot = moveVec.x * _wallNormal2D.x + moveVec.z * _wallNormal2D.z;
+            _slideVecTemp.set(
+                moveVec.x - _wallNormal2D.x * dot,
+                0,
+                moveVec.z - _wallNormal2D.z * dot
+            );
+            var slideDist = Math.hypot(_slideVecTemp.x, _slideVecTemp.z);
             if (slideDist >= 0.0001) {
-                var slideDir = new THREE.Vector3(slideVec.x, 0, slideVec.z).normalize();
-                var slideHit = raycastWalls(feetPos, slideDir, slideDist + CONFIG_PLAYER.wallCollisionBuffer * 0.8);
+                _slideDirTemp.set(_slideVecTemp.x / slideDist, 0, _slideVecTemp.z / slideDist);
+                var slideHit = raycastWalls(feetPos, _slideDirTemp, slideDist + CONFIG_PLAYER.wallCollisionBuffer * 0.8);
                 if (!slideHit || slideHit.distance >= slideDist + CONFIG_PLAYER.wallCollisionBuffer * 0.4) {
-                    return slideVec;
+                    return _slideVecTemp;
                 }
             }
         }
     }
-    return new THREE.Vector3(0, 0, 0);
+    _zeroVecTemp.set(0, 0, 0);
+    return _zeroVecTemp;
 }
 
 function verificarZonasDeHistoriaYMonumentos(time) {
-    if (!window.ESTACIONES_HISTORIA || tourActivo) return;
+    if (!window.ESTACIONES_HISTORIA || tourActivo || monumentoModalActivo || seleccionPersonajeActiva) return;
 
     var px = player.position.x;
     var pz = player.position.z;
@@ -1797,7 +2363,7 @@ function verificarZonasDeHistoriaYMonumentos(time) {
             objetivoZ = siguienteNoVisitada.zona.z;
         }
 
-        if (objetivoX !== null && !window.historiaEnCurso && !tourActivo) {
+        if (objetivoX !== null && !window.historiaEnCurso && !tourActivo && !seleccionPersonajeActiva) {
             guideArrowMesh.visible = true;
             var anguloHaciaDestino = Math.atan2(objetivoX - px, objetivoZ - pz);
             guideArrowMesh.position.set(
@@ -1813,17 +2379,18 @@ function verificarZonasDeHistoriaYMonumentos(time) {
 
     monumentoCercanoActual = null;
     var menorDistMon = Infinity;
-    marcadores.forEach(function(m) {
+    for (var mIdx = 0; mIdx < marcadores.length; mIdx++) {
+        var m = marcadores[mIdx];
         var radioMonumento = m.radio || CONFIG_PLAYER.monumentRadius;
         var d = Math.hypot(m.pisoPos.x - px, m.pisoPos.z - pz);
         if (d <= radioMonumento && d < menorDistMon) {
             menorDistMon = d;
             monumentoCercanoActual = m;
         }
-    });
+    }
 
     if (hudPromptEl) {
-        if (window.historiaEnCurso || tourActivo) {
+        if (window.historiaEnCurso || tourActivo || monumentoModalActivo || seleccionPersonajeActiva) {
             hudPromptEl.style.display = 'none';
         } else if (monumentoCercanoActual) {
             hudPromptEl.style.display = 'block';
@@ -1842,6 +2409,9 @@ function verificarZonasDeHistoriaYMonumentos(time) {
     window.actualizarHUDProgreso();
 }
 
+var _tourPosTemp = new THREE.Vector3();
+var _tourLookTemp = new THREE.Vector3();
+
 function actualizarTourAereo(delta) {
     if (!tourCurves) {
         tourCurves = construirCurvasTourPlaza();
@@ -1859,19 +2429,11 @@ function actualizarTourAereo(delta) {
     var rawT = Math.min(tourElapsed / CONFIG_PLAYER.tourDuration, 1.0);
     var t = rawT < 0.5 ? 2 * rawT * rawT : 1 - Math.pow(-2 * rawT + 2, 2) / 2;
 
-    var pos = tourCurves.positions.getPoint(t);
-    var look = tourCurves.looks.getPoint(t);
+    tourCurves.positions.getPoint(t, _tourPosTemp);
+    tourCurves.looks.getPoint(t, _tourLookTemp);
 
-    camera.position.copy(pos);
-    camera.lookAt(look);
-
-    characterGroup.position.set(
-        player.position.x,
-        player.position.y + (CONFIG_PLAYER.characterFootOffset || 0),
-        player.position.z
-    );
-    characterGroup.rotation.y = characterFacingYaw + CONFIG_PLAYER.characterYawOffset;
-    actualizarAnimacionMinero(delta, false, false);
+    camera.position.copy(_tourPosTemp);
+    camera.lookAt(_tourLookTemp);
 
     if (tourBarEl) {
         tourBarEl.style.width = Math.round(rawT * 100) + '%';
@@ -1881,7 +2443,7 @@ function actualizarTourAereo(delta) {
         else if (rawT < 0.45) tourLabelEl.innerText = '✈️ Sobrevuelo: Monumento al Minero de Siglo XX...';
         else if (rawT < 0.70) tourLabelEl.innerText = '✈️ Sobrevuelo: Monumento a las Palliris y Jardines...';
         else if (rawT < 0.88) tourLabelEl.innerText = '✈️ Sobrevuelo: Fuente, Reloj y Letras Siglo XX...';
-        else tourLabelEl.innerText = '👷 Llegando a tu personaje para iniciar el recorrido a pie...';
+        else tourLabelEl.innerText = '👷 Llegando al punto de inicio para elegir tu personaje...';
     }
 
     if (!splashVisible && rawT >= 1.0) {
@@ -1889,13 +2451,18 @@ function actualizarTourAereo(delta) {
     }
 }
 
+var _forwardTemp = new THREE.Vector3();
+var _rightTemp = new THREE.Vector3();
+var _moveDirTemp = new THREE.Vector3();
+var _desiredMoveTemp = new THREE.Vector3();
+
 function updatePlayer(delta, elapsedTime) {
     if (tourActivo) {
         actualizarTourAereo(delta);
         return;
     }
 
-    if (window.historiaEnCurso) {
+    if (window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva) {
         player.velocity.set(0, 0, 0);
         actualizarAnimacionMinero(delta, false, false);
         placeCharacterAndCamera(elapsedTime);
@@ -1905,29 +2472,29 @@ function updatePlayer(delta, elapsedTime) {
     if (keys['KeyE']) player.yaw -= 1.8 * delta;
     if (keys['KeyQ']) player.yaw += 1.8 * delta;
 
-    var forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-    var right = new THREE.Vector3(-forward.z, 0, forward.x);
-    var moveDir = new THREE.Vector3(0, 0, 0);
+    _forwardTemp.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    _rightTemp.set(-_forwardTemp.z, 0, _forwardTemp.x);
+    _moveDirTemp.set(0, 0, 0);
 
-    if (keys['KeyW'] || keys['ArrowUp']) moveDir.add(forward);
-    if (keys['KeyS'] || keys['ArrowDown']) moveDir.sub(forward);
-    if (keys['KeyA'] || keys['ArrowLeft']) moveDir.sub(right);
-    if (keys['KeyD'] || keys['ArrowRight']) moveDir.add(right);
+    if (keys['KeyW'] || keys['ArrowUp']) _moveDirTemp.add(_forwardTemp);
+    if (keys['KeyS'] || keys['ArrowDown']) _moveDirTemp.sub(_forwardTemp);
+    if (keys['KeyA'] || keys['ArrowLeft']) _moveDirTemp.sub(_rightTemp);
+    if (keys['KeyD'] || keys['ArrowRight']) _moveDirTemp.add(_rightTemp);
 
-    var isWalking = moveDir.length() > 0;
-    if (isWalking) moveDir.normalize();
+    var isWalking = _moveDirTemp.lengthSq() > 0;
+    if (isWalking) _moveDirTemp.normalize();
 
     var isRunning = keys['ShiftLeft'] || keys['ShiftRight'];
     var speed = isRunning ? CONFIG_PLAYER.runSpeed : CONFIG_PLAYER.moveSpeed;
 
-    var targetVelX = moveDir.x * speed;
-    var targetVelZ = moveDir.z * speed;
+    var targetVelX = _moveDirTemp.x * speed;
+    var targetVelZ = _moveDirTemp.z * speed;
     var accel = CONFIG_PLAYER.acceleration;
     player.velocity.x += (targetVelX - player.velocity.x) * Math.min(1, accel * delta);
     player.velocity.z += (targetVelZ - player.velocity.z) * Math.min(1, accel * delta);
 
-    var desiredMove = new THREE.Vector3(player.velocity.x * delta, 0, player.velocity.z * delta);
-    var allowedMove = tryMoveHorizontal(player.position, desiredMove);
+    _desiredMoveTemp.set(player.velocity.x * delta, 0, player.velocity.z * delta);
+    var allowedMove = tryMoveHorizontal(player.position, _desiredMoveTemp);
 
     player.position.x += allowedMove.x;
     player.position.z += allowedMove.z;
@@ -1938,7 +2505,7 @@ function updatePlayer(delta, elapsedTime) {
     player.position.z = Math.max(CONFIG_PLAYER.bounds.minZ, Math.min(CONFIG_PLAYER.bounds.maxZ, player.position.z));
 
     if (isWalking || Math.hypot(player.velocity.x, player.velocity.z) > 0.05) {
-        var targetFloorY = getFloorHeightBelow(player.position.x, player.position.z, player.position.y, moveDir);
+        var targetFloorY = getFloorHeightBelow(player.position.x, player.position.z, player.position.y, _moveDirTemp);
         if (targetFloorY > player.position.y) {
             player.position.y += (targetFloorY - player.position.y) * Math.min(1, CONFIG_PLAYER.floorUpSpeed * delta);
         } else {
@@ -1950,7 +2517,7 @@ function updatePlayer(delta, elapsedTime) {
     }
 
     if (isWalking) {
-        var targetYaw = Math.atan2(-moveDir.x, -moveDir.z);
+        var targetYaw = Math.atan2(-_moveDirTemp.x, -_moveDirTemp.z);
         characterFacingYaw = lerpAngle(characterFacingYaw, targetYaw, Math.min(1, CONFIG_PLAYER.characterTurnSpeed * delta));
     }
 
@@ -1962,11 +2529,31 @@ function updatePlayer(delta, elapsedTime) {
 // EVENTOS Y BUCLE PRINCIPAL OPTIMIZADO
 // ====================================================
 document.addEventListener('keydown', function(e) {
+    if (monumentoModalActivo) {
+        if (e.code === 'Escape') {
+            e.preventDefault();
+            window.cerrarMonumentoInstantaneo();
+        }
+        return;
+    }
+
+    if (seleccionPersonajeActiva) {
+        if (e.code === 'Digit1') window.seleccionarPersonaje('minero');
+        if (e.code === 'Digit2') window.seleccionarPersonaje('minera');
+        return;
+    }
+
     keys[e.code] = true;
 
     if (tourActivo && (e.code === 'Escape' || e.code === 'Space')) {
         e.preventDefault();
         window.terminarTourPlaza();
+        return;
+    }
+
+    if (e.code === 'KeyC' && !e.repeat && !tourActivo && !window.historiaEnCurso) {
+        e.preventDefault();
+        window.mostrarSelectorPersonaje();
         return;
     }
 
@@ -1996,7 +2583,7 @@ document.addEventListener('keydown', function(e) {
 
     if (e.code === 'KeyF' && !e.repeat && !window.historiaEnCurso && !tourActivo) {
         if (monumentoCercanoActual) {
-            window.location.href = monumentoCercanoActual.enlace;
+            window.abrirMonumentoInstantaneo(monumentoCercanoActual.enlace);
         } else if (hudPromptEl && hudPromptEl.dataset.repeatIndex !== undefined) {
             window.abrirCapituloZona(parseInt(hudPromptEl.dataset.repeatIndex, 10), false);
         }
@@ -2008,7 +2595,7 @@ document.addEventListener('keyup', function(e) {
 });
 
 document.addEventListener('mousemove', function(e) {
-    if (locked && !window.historiaEnCurso && !tourActivo) {
+    if (locked && !window.historiaEnCurso && !tourActivo && !monumentoModalActivo && !seleccionPersonajeActiva) {
         player.yaw -= e.movementX * CONFIG_PLAYER.mouseSensitivity;
         player.pitch += e.movementY * CONFIG_PLAYER.mouseSensitivity;
         player.pitch = Math.max(CONFIG_PLAYER.pitchMin, Math.min(CONFIG_PLAYER.pitchMax, player.pitch));
@@ -2016,7 +2603,7 @@ document.addEventListener('mousemove', function(e) {
 });
 
 window.addEventListener('wheel', function(e) {
-    if (window.historiaEnCurso || tourActivo) return;
+    if (window.historiaEnCurso || tourActivo || monumentoModalActivo || seleccionPersonajeActiva) return;
     currentCameraDistance += Math.sign(e.deltaY) * CONFIG_PLAYER.cameraZoomSpeed;
     currentCameraDistance = Math.max(CONFIG_PLAYER.cameraMinDistance, Math.min(CONFIG_PLAYER.cameraMaxDistance, currentCameraDistance));
 }, { passive: true });
@@ -2026,6 +2613,7 @@ document.addEventListener('pointerlockchange', function() {
 });
 
 window.addEventListener('click', function(e) {
+    if (monumentoModalActivo || seleccionPersonajeActiva) return;
     if (sound && !sound.isPlaying && sound.buffer) {
         sound.play();
     }
@@ -2046,13 +2634,22 @@ var _projVec = new THREE.Vector3();
 
 function animate() {
     requestAnimationFrame(animate);
+
+    if (monumentoModalActivo) {
+        return;
+    }
+
     var delta = Math.min(clock.getDelta(), 0.05);
     var elapsedTime = clock.getElapsedTime();
     _frameCounter++;
 
+    if (seleccionPersonajeActiva) {
+        renderizarVisoresPreviewPersonajes(delta, elapsedTime);
+        return;
+    }
+
     updatePlayer(delta, elapsedTime);
 
-    // Actualizar zonas de historia, HUD y Radar 2D cada 2 frames para máxima fluidez
     if (_frameCounter % 2 === 0) {
         verificarZonasDeHistoriaYMonumentos(elapsedTime);
         actualizarMinimapaRadar(elapsedTime);
@@ -2061,7 +2658,6 @@ function animate() {
     var winW = window.innerWidth;
     var winH = window.innerHeight;
 
-    // Etiquetas 3D aceleradas por GPU con translate3d
     for (var i = 0; i < marcadores.length; i++) {
         var marcador = marcadores[i];
         if (marcador.elemento && camera) {
@@ -2113,22 +2709,18 @@ window.cambiarAtmosfera = function(modo) {
     if (modo === 'dia') {
         texturaRuta = "imagenes/cielo.jpg";
         directionalLight.color.setHex(0xffe8cc);
-        directionalLight.intensity = 1.35;
+        directionalLight.intensity = 1.38;
         hemisphereLight.color.setHex(0xffffff);
         hemisphereLight.groundColor.setHex(0x2d1a0e);
         ambientLight.color.setHex(0xffffff);
-        ambientLight.intensity = 0.68;
+        ambientLight.intensity = 0.70;
         if (scene.fog) scene.fog.color.setHex(0xa0c4e0);
         lucesPostes.forEach(function(luz) { 
             luz.intensity = 0; 
             luz.visible = false; 
         });
         if (filmPass) {
-            filmPass.enabled = true;
-            if (filmPass.uniforms && filmPass.uniforms.nIntensity) {
-                filmPass.uniforms.nIntensity.value = 0.07; // Sutil acabado de cine sin granulado molesto
-                filmPass.uniforms.sIntensity.value = 0.015;
-            }
+            filmPass.enabled = false;
         }
         
     } else if (modo === 'atardecer' || modo === 'tarde') {
@@ -2147,8 +2739,8 @@ window.cambiarAtmosfera = function(modo) {
         if (filmPass) {
             filmPass.enabled = true;
             if (filmPass.uniforms && filmPass.uniforms.nIntensity) {
-                filmPass.uniforms.nIntensity.value = 0.16;
-                filmPass.uniforms.sIntensity.value = 0.025;
+                filmPass.uniforms.nIntensity.value = 0.14;
+                filmPass.uniforms.sIntensity.value = 0.02;
             }
         }
         
@@ -2168,8 +2760,8 @@ window.cambiarAtmosfera = function(modo) {
         if (filmPass) {
             filmPass.enabled = true;
             if (filmPass.uniforms && filmPass.uniforms.nIntensity) {
-                filmPass.uniforms.nIntensity.value = 0.18;
-                filmPass.uniforms.sIntensity.value = 0.03;
+                filmPass.uniforms.nIntensity.value = 0.16;
+                filmPass.uniforms.sIntensity.value = 0.025;
             }
         }
     } else {
@@ -2206,6 +2798,8 @@ var btnSalir = document.getElementById("btn-salir");
 if (btnSalir) {
     btnSalir.addEventListener("click", function () {
         sessionStorage.removeItem("historiaCompletada");
+        sessionStorage.removeItem("estadoJugadorPlaza");
+        sessionStorage.removeItem("personajeElegidoPlaza");
         window.location.href = window.location.pathname + "?inicio=" + Date.now();
     });
 }
