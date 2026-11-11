@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plaza Minero - Recorrido Virtual 3D</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@700;900&family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">    
+    <link rel="stylesheet" href="modelo.css">
+
+    <style>
+        /* =========================================
+           ESTILOS PANTALLA DE BIENVENIDA TRANSPARENTE
+           ========================================= */
+        #pantalla-bienvenida {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            
+            /* Fondo semitransparente oscuro para ver el modelo 3D de fondo */
+            background: rgba(4, 14, 9, 0.55); 
+            backdrop-filter: blur(5px); 
+            -webkit-backdrop-filter: blur(5px);
+            
+            /* Z-index súper alto para estar por encima del 3D e historia */
+            z-index: 99998; 
+            
+            /* Inicialmente oculto hasta que termine el loader */
+            display: none; 
+            opacity: 0;
+            
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+            user-select: none;
+            transition: opacity 0.6s ease, visibility 0.6s ease;
+        }
+
+        /* 👉 LOGO DE LA PANTALLA SPLASH MÁS GRANDE */
+        .bienvenida-escudo {
+            width: 220px;
+            max-width: 220px;
+            height: auto;
+            margin-bottom: 22px;
+            filter: drop-shadow(0px 0px 22px rgba(34, 197, 94, 0.75));
+            animation: flotar 3s ease-in-out infinite;
+        }
+
+        .bienvenida-sub-top {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: #facc15; 
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            text-shadow: 0 0 10px rgba(250, 204, 21, 0.6);
+        }
+
+        .texto-bienvenida {
+            max-width: 950px;
+        }
+
+        .bienvenida-linea-1 {
+            font-family: 'Cinzel', serif;
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #ffffff;
+            display: block;
+            margin-bottom: 6px;
+            letter-spacing: 3px;
+            text-shadow: 0 3px 12px rgba(0,0,0,0.9);
+        }
+
+        .bienvenida-linea-2 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: 4rem;
+            font-weight: 900;
+            background: linear-gradient(180deg, #4ade80 0%, #16a34a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: block;
+            margin: 10px 0;
+            letter-spacing: 4px;
+            filter: drop-shadow(0px 4px 18px rgba(34, 197, 94, 0.5));
+        }
+
+        .bienvenida-linea-3 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: 2.8rem;
+            font-weight: 900;
+            color: #ffffff;
+            display: block;
+            letter-spacing: 6px;
+            text-shadow: 0 3px 15px rgba(0,0,0,0.9);
+        }
+
+        .instruccion-clic {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-top: 45px;
+            padding: 12px 30px;
+            border: 2px solid #22c55e;
+            border-radius: 50px;
+            background: rgba(34, 197, 94, 0.3);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.5);
+            animation: pulso 2s infinite;
+        }
+
+        /* El loader debe tapar la bienvenida mientras está activo */
+        #loader-container {
+            z-index: 999999 !important; 
+        }
+
+        @keyframes pulso {
+            0% { transform: scale(1); box-shadow: 0 0 15px rgba(34, 197, 94, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(34, 197, 94, 0.8); }
+            100% { transform: scale(1); box-shadow: 0 0 15px rgba(34, 197, 94, 0.4); }
+        }
+
+        @keyframes flotar {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        @media (max-width: 768px) {
+            .bienvenida-escudo { width: 150px; max-width: 150px; margin-bottom: 16px; }
+            .bienvenida-sub-top { font-size: 0.85rem; letter-spacing: 3px; }
+            .bienvenida-linea-1 { font-size: 1.3rem; letter-spacing: 1.5px; }
+            .bienvenida-linea-2 { font-size: 2.2rem; letter-spacing: 2px; }
+            .bienvenida-linea-3 { font-size: 1.6rem; letter-spacing: 3px; }
+            .instruccion-clic { font-size: 0.8rem; padding: 10px 20px; margin-top: 30px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- LOADER (PANTALLA DE CARGA DEL MODELO 3D) -->
+    <div id="loader-container">
+        <div class="loader-content">
+            <div class="loader-brand">POTOSÍ - LLALLAGUA - SIGLO XX</div>
+            <div class="loader-text">Cargando Modelo 3D...</div>
+            <div class="progress-bar-container">
+                <div id="progress-bar"></div>
+            </div>
+            <div id="progress-text">0%</div>
+        </div>
+    </div>
+
+    <!-- PANTALLA DE BIENVENIDA (SE MUESTRA TRAS COMPLETAR LA CARGA) -->
+    <div id="pantalla-bienvenida" onclick="ocultarBienvenida()">
+        <img src="imagenes/logo.png" alt="Escudo Llallagua" class="bienvenida-escudo">
+        <div class="bienvenida-sub-top">POTOSÍ - LLALLAGUA - SIGLO XX</div>
+        <div class="texto-bienvenida">
+            <span class="bienvenida-linea-1">BIENVENIDOS AL RECORRIDO DE LA</span>
+            <span class="bienvenida-linea-2">PLAZA DEL MINERO</span>
+            <span class="bienvenida-linea-3">EN 3D</span>
+        </div>
+        <div class="instruccion-clic">Haz clic en la pantalla para comenzar</div>
+    </div>
+
+    <!-- UI PRINCIPAL DEL NAVEGADOR -->
+    <div id="ui-container">
+        <div class="header-izquierdo">
+            <img src="imagenes/logo.png" alt="Escudo Llallagua" class="logo-escudo">
+            <h1 class="titulo-plaza">
+                Potosí - Llallagua - Siglo "XX"
+                <span>Plaza del Minero</span>
+            </h1>
+        </div>
+        
+        <div class="botones-container">
+            <button class="btn-fotografias btn-postal-ui" id="btn-tomar-postal" onclick="window.tomarFotoPostal && window.tomarFotoPostal()">📸 TOMAR FOTO (P)</button>
+            <button class="btn-fotografias btn-tour-ui" id="btn-iniciar-tour" onclick="window.iniciarTourPlaza && window.iniciarTourPlaza(true)">✈️ RECORRIDO 3D</button>
+            <button class="btn-fotografias" onclick="window.location.href='fotografias.html'">FOTOGRAFÍAS</button>
+            <button class="action-button" onclick="window.location.href='ubicacion.html'">UBICACIÓN</button>
+            <button class="btn-salir" id="btn-salir">SALIR</button>
+        </div>
+
+        <div class="clima-botones-container">
+            <button class="btn-clima activo" id="btn-dia" onclick="cambiarAtmosfera('dia')">☀️ Día</button>
+            <button class="btn-clima" id="btn-tarde" onclick="cambiarAtmosfera('tarde')">🌅 Tarde</button>
+            <button class="btn-clima" id="btn-nublado" onclick="cambiarAtmosfera('nublado')">🌙 Noche</button>
+        </div>
+    </div>
+
+    <div id="etiquetas-container"></div>
+
+    <!-- HISTORIA INTERACTIVA -->
+    <div id="historia-overlay">
+        <div id="historia-panel">
+            <div class="historia-indicador">
+                <span id="historia-numero">01</span>
+                <span class="historia-linea"></span>
+                <span>PLAZA DEL MINERO</span>
+            </div>
+            <h2 id="historia-titulo">Plaza del Minero</h2>
+            <div class="historia-imagen-contenedor">
+                <img id="historia-imagen" src="" alt="Historia de la Plaza del Minero">
+            </div>
+            <p id="historia-texto">Cargando historia...</p>
+            <div class="historia-footer">
+                <div class="historia-progreso">
+                    <span id="historia-progreso-texto">1 / 5</span>
+                    <div class="historia-progreso-barra">
+                        <div id="historia-progreso-fill"></div>
+                    </div>
+                </div>
+                <button id="historia-siguiente">CONTINUAR →</button>
+            </div>
+        </div>
+    </div>
+
+    <button id="btn-explorar-plaza">EXPLORAR LA PLAZA</button>
+
+    <div class="instrucciones-navegacion">
+        <h3>Controles del Personaje</h3>
+        <ul>
+            <li><strong>W, A, S, D / Flechas:</strong> Caminar</li>
+            <li><strong>Shift:</strong> Correr</li>
+            <li><strong>Mouse / Q, E:</strong> Girar vista</li>
+            <li><strong>Rueda ratón:</strong> Zoom cámara</li>
+            <li><strong>Tecla F:</strong> Interactuar / Historia</li>
+            <li><strong>Tecla P:</strong> Tomar Foto Postal</li>
+            <li><strong>Tecla T:</strong> Vuelo por la Plaza</li>
+            <li><strong>Tecla Z:</strong> Volver al Inicio</li>
+        </ul>
+    </div>
+
+    <!-- LIBRERÍAS Y SCRIPTS DEL PROYECTO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/108/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- POSTPROCESSING SCRIPTS (r108) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/shaders/FilmShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/shaders/FXAAShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/postprocessing/FilmPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.108.0/examples/js/postprocessing/OutlinePass.js"></script>
+    
+    <script src="historia.js"></script>
+    <script src="modelo.js"></script>
+
+    <script>
+        // Cierra la bienvenida al hacer clic en cualquier lugar
+        function ocultarBienvenida() {
+            var pantalla = document.getElementById('pantalla-bienvenida');
+            if (pantalla) {
+                pantalla.style.opacity = '0';
+                setTimeout(function() {
+                    pantalla.style.visibility = 'hidden';
+                    pantalla.style.display = 'none';
+                }, 600);
+            }
+        }
+
+        // CONTROLADOR DE ACTIVACIÓN:
+        // Revisa constantemente hasta que el loader termina o desaparece
+        const chequearFinDeCarga = setInterval(function() {
+            const loader = document.getElementById('loader-container');
+            const pantalla = document.getElementById('pantalla-bienvenida');
+
+            // Si el loader fue removido del DOM o su display/opacity es oculto
+            if (!loader || window.getComputedStyle(loader).display === 'none' || window.getComputedStyle(loader).opacity === '0') {
+                if (pantalla && pantalla.style.display !== 'flex') {
+                    pantalla.style.display = 'flex';
+                    setTimeout(function() {
+                        pantalla.style.opacity = '1';
+                    }, 50);
+                }
+                clearInterval(chequearFinDeCarga); // Detiene la revisión una vez que aparece
+            }
+        }, 150);
+
+        // Evento para el botón Salir
+        document.addEventListener("click", function(e) {
+            if (e.target.closest("#btn-salir")) {
+                sessionStorage.removeItem("historiaCompletada");
+                window.location.href = "index.html?inicio=" + Date.now();
+            }
+        });
+    </script>
+</body>
+</html>
