@@ -1,18 +1,13 @@
-// ====================================================
-// MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
-// VERSIÓN CORREGIDA SIN ERRORES DE SKELETON.UPDATE EN THREE.JS r108
-// + COMPATIBLE CON GITHUB PAGES + ANIMACIÓN MIXAMO EN MINERO Y MINERA
-// ====================================================
-
 var scene, camera, renderer, plaza, controles, sound;
 var ambientLight, hemisphereLight, directionalLight, directionalLight2;
 var lucesPostes = [];
+var bulbosPostes = [];
 var clock = new THREE.Clock();
 
-var composer, renderPass, filmPass;
-var maxAnisotropy = 8;
+var maxAnisotropy = 1;
 var monumentoModalActivo = false;
 var monumentoIframeOverlay = null;
+var texturasCieloCache = {};
 
 // Variables para el Selector de Personaje (Minero / Minera)
 var seleccionPersonajeActiva = false;
@@ -20,7 +15,7 @@ var personajeYaElegido = false;
 var tipoPersonajeActual = 'minero'; // 'minero' o 'minera'
 var selectorPersonajeModalEl = null;
 
-// Escenas dedicadas para previsualizar el Minero y la Minera usando el renderer principal (evita errores de contexto WebGL)
+// Escenas dedicadas para previsualizar el Minero y la Minera
 var previewScenes = { minero: null, minera: null };
 var previewCameras = { minero: null, minera: null };
 var previewModels = { minero: null, minera: null };
@@ -34,26 +29,223 @@ var MODELOS_PERSONAJES = {
 };
 
 // ====================================================
+// MOTOR DE AUDIO MP3 FUERTE (audios/pasos.mp3 y audios/viento.mp3)
+// + Respaldo procedural de alto volumen
+// ====================================================
+var audioVientoEl = null;
+var audioPasosEl = null;
+var audioMp3Inicializado = false;
+var pasosMp3Disponible = true;
+var vientoMp3Disponible = true;
+
+var sfxCtx = null;
+var sfxNoiseBuffer = null;
+var sfxVientoActivo = false;
+var sfxVientoGain = null;
+var sfxVientoFilter = null;
+var stepTimer = 0;
+var stepFootIndex = 0;
+
+function prepararElementosAudioMP3() {
+    if (!audioVientoEl) {
+        audioVientoEl = new Audio('audios/viento.mp3');
+        audioVientoEl.loop = true;
+        audioVientoEl.preload = 'auto';
+        audioVientoEl.volume = 0.1;
+        audioVientoEl.addEventListener('error', function() {
+            vientoMp3Disponible = false;
+        });
+    }
+    if (!audioPasosEl) {
+        audioPasosEl = new Audio('audios/pasos.mp3');
+        audioPasosEl.loop = true;
+        audioPasosEl.preload = 'auto';
+        audioPasosEl.volume = 1.0;
+        audioPasosEl.addEventListener('error', function() {
+            pasosMp3Disponible = false;
+        });
+    }
+}
+
+prepararElementosAudioMP3();
+
+function inicializarAudioProcedural() {
+    prepararElementosAudioMP3();
+
+    if (vientoMp3Disponible && audioVientoEl && audioVientoEl.paused && !monumentoModalActivo) {
+        var playPromise = audioVientoEl.play();
+        if (playPromise !== undefined) {
+            playPromise.then(function() {
+                audioMp3Inicializado = true;
+            }).catch(function() {});
+        }
+    }
+
+    if (sfxCtx) {
+        if (sfxCtx.state === 'suspended') sfxCtx.resume();
+        return;
+    }
+    var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    sfxCtx = new AudioContextClass();
+
+    var sampleRate = sfxCtx.sampleRate;
+    var length = sampleRate * 2;
+    sfxNoiseBuffer = sfxCtx.createBuffer(1, length, sampleRate);
+    var data = sfxNoiseBuffer.getChannelData(0);
+    for (var i = 0; i < length; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+
+    if (!vientoMp3Disponible) {
+        iniciarSonidoVientoYArboles();
+    }
+}
+
+function iniciarSonidoVientoYArboles() {
+    if (!sfxCtx || sfxVientoActivo || !sfxNoiseBuffer) return;
+    sfxVientoActivo = true;
+
+    var windSource = sfxCtx.createBufferSource();
+    windSource.buffer = sfxNoiseBuffer;
+    windSource.loop = true;
+
+    sfxVientoFilter = sfxCtx.createBiquadFilter();
+    sfxVientoFilter.type = 'bandpass';
+    sfxVientoFilter.frequency.value = 360;
+    sfxVientoFilter.Q.value = 2.0;
+
+    sfxVientoGain = sfxCtx.createGain();
+    sfxVientoGain.gain.value = 0.14;
+
+    windSource.connect(sfxVientoFilter);
+    sfxVientoFilter.connect(sfxVientoGain);
+    sfxVientoGain.connect(sfxCtx.destination);
+    windSource.start(0);
+}
+
+function modularVientoAmbiental(elapsedTime) {
+    if (vientoMp3Disponible && audioVientoEl) {
+        if (monumentoModalActivo || seleccionPersonajeActiva) {
+            audioVientoEl.volume = 0.15;
+        } else {
+            var rachaMp3 = Math.sin(elapsedTime * 0.5) * 0.12 + Math.cos(elapsedTime * 0.9) * 0.08;
+            audioVientoEl.volume = Math.max(0.45, Math.min(0.88, 0.68 + rachaMp3));
+        }
+        return;
+    }
+
+    if (!sfxCtx || !sfxVientoFilter || !sfxVientoGain) return;
+    if (monumentoModalActivo || seleccionPersonajeActiva) {
+        sfxVientoGain.gain.value = 0.02;
+        return;
+    }
+    var racha = Math.sin(elapsedTime * 0.45) * 0.5 + Math.sin(elapsedTime * 1.1) * 0.5;
+    sfxVientoFilter.frequency.value = 310 + (racha + 1) * 110;
+    sfxVientoGain.gain.value = 0.09 + (racha + 1) * 0.05;
+}
+
+function actualizarSonidoPasosJugador(isWalking, isRunning, delta) {
+    var puedeSonar = isWalking && !tourActivo && !window.historiaEnCurso && !monumentoModalActivo && !seleccionPersonajeActiva;
+
+    if (pasosMp3Disponible && audioPasosEl) {
+        if (puedeSonar) {
+            audioPasosEl.volume = 1.0;
+            audioPasosEl.playbackRate = isRunning ? 1.38 : 1.0;
+            if (audioPasosEl.paused) {
+                var p = audioPasosEl.play();
+                if (p !== undefined) {
+                    p.catch(function() {});
+                }
+            }
+        } else {
+            if (!audioPasosEl.paused) {
+                audioPasosEl.pause();
+            }
+        }
+        return;
+    }
+
+    if (puedeSonar) {
+        inicializarAudioProcedural();
+        var intervaloPaso = isRunning ? 0.28 : 0.42;
+        stepTimer += delta;
+        if (stepTimer >= intervaloPaso) {
+            stepTimer = 0;
+            reproducirPasoCementoRespaldo(isRunning);
+        }
+    } else {
+        stepTimer = 0.35;
+    }
+}
+
+function detenerSonidoPasos() {
+    if (audioPasosEl && !audioPasosEl.paused) {
+        audioPasosEl.pause();
+    }
+}
+
+function reproducirPasoCementoRespaldo(isRunning) {
+    if (!sfxCtx || !sfxNoiseBuffer) return;
+    if (sfxCtx.state === 'suspended') sfxCtx.resume();
+
+    var now = sfxCtx.currentTime;
+    stepFootIndex = 1 - stepFootIndex;
+    var variacionTono = (stepFootIndex === 0 ? 0.96 : 1.04) * (0.97 + Math.random() * 0.06);
+    var vol = isRunning ? 0.65 : 0.48;
+
+    var grit = sfxCtx.createBufferSource();
+    grit.buffer = sfxNoiseBuffer;
+
+    var bandpass = sfxCtx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.setValueAtTime(1050 * variacionTono, now);
+    bandpass.Q.setValueAtTime(1.8, now);
+
+    var gritGain = sfxCtx.createGain();
+    gritGain.gain.setValueAtTime(0.001, now);
+    gritGain.gain.linearRampToValueAtTime(vol, now + 0.006);
+    gritGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+
+    grit.connect(bandpass);
+    bandpass.connect(gritGain);
+    gritGain.connect(sfxCtx.destination);
+    grit.start(now, Math.random() * 1.2, 0.085);
+
+    var thud = sfxCtx.createOscillator();
+    thud.type = 'triangle';
+    thud.frequency.setValueAtTime(145 * variacionTono, now);
+    thud.frequency.exponentialRampToValueAtTime(45, now + 0.06);
+
+    var thudGain = sfxCtx.createGain();
+    thudGain.gain.setValueAtTime(vol * 0.95, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+
+    thud.connect(thudGain);
+    thudGain.connect(sfxCtx.destination);
+    thud.start(now);
+    thud.stop(now + 0.07);
+}
+
+// ====================================================
 // CONFIGURACIÓN CALIBRADA DEL PERSONAJE, CÁMARA Y GRADAS/RAMPAS
 // ====================================================
 var CONFIG_PLAYER = {
-    startPosition: [30, 0, -10], // Punto de inicio
+    startPosition: [30, 0, -10],
     startYaw: 0.45,
     baseGroundY: 7.2,
     minSafetyY: -2.0,
 
-    // 👉 TAMAÑO Y AJUSTE DE PIES DEL PERSONAJE:
     alturaDeseadaPersonaje: 9.5,
     characterFootOffset: 0.0,
     characterYawOffset: Math.PI,
 
-    // 👉 CONFIGURACIÓN PARA SUBIR TODAS LAS GRADAS, ACERAS Y RAMPAS:
     maxStepUp: 6.8,
     maxStepDown: 16.0,
     floorUpSpeed: 28.0,
     floorDownSpeed: 18.0,
 
-    // 👉 CÁMARA EN 3ª PERSONA ELEVADA Y ALEJADA
     cameraDistance: 18.0,
     cameraMinDistance: 7.0,
     cameraMaxDistance: 38.0,
@@ -65,21 +257,17 @@ var CONFIG_PLAYER = {
     pitchMin: -0.20,
     pitchMax: 6,
 
-    // 👉 DURACIÓN DEL RECORRIDO AÉREO POR TODA LA PLAZA (segundos)
     tourDuration: 22.0,
 
-    // 👉 VELOCIDAD Y COLISIONES
     moveSpeed: 18.0,
     runSpeed: 30.0,
     acceleration: 12.0,
     characterTurnSpeed: 10.0,
     wallCollisionBuffer: 1.15,
 
-    // Radios de activación
     triggerRadius: 5.5,
     monumentRadius: 13.5,
 
-    // Límites amplios (se auto-ajustan a todo el modelo piso.glb al cargar)
     bounds: {
         minX: -240,
         maxX: 160,
@@ -111,7 +299,7 @@ var tourOverlayEl = null;
 var tourBarEl = null;
 var tourLabelEl = null;
 
-// Listas de colisión física
+// Listas de colisión física optimizadas
 var floorMeshes = [];
 var wallMeshes = [];
 var cameraBlockMeshes = [];
@@ -120,6 +308,8 @@ var circleObstacles = [];
 
 var characterGroup = new THREE.Group();
 characterGroup.visible = false;
+characterGroup.castShadow = false;
+characterGroup.receiveShadow = false;
 var characterModel = null;
 var characterMixer = null;
 var characterActions = { idle: null, walk: null };
@@ -155,11 +345,11 @@ logoPostalImg.crossOrigin = "anonymous";
 logoPostalImg.src = "imagenes/logo.png";
 
 var marcadores = [
-    { texto: "Monumento a Irineo Pimentel Rojas", corto: "Irineo", posicion: new THREE.Vector3(-73, 41, 22.5), pisoPos: new THREE.Vector3(-73, 7.2, 22.5), elemento: null, enlace: "irineo.html" },
-    { texto: "Monumento a Federico Escobar", corto: "Federico", posicion: new THREE.Vector3(-70, 40, 11.5), pisoPos: new THREE.Vector3(-70, 7.2, 11.5), elemento: null, enlace: "federico.html" },
-    { texto: "Monumento a Cesar, Gillermo e Isaac", corto: "Mártires", posicion: new THREE.Vector3(-74, 39, -38), pisoPos: new THREE.Vector3(-74, 7.2, -38), elemento: null, enlace: "cesar.html" },
-    { texto: "Monumento a las Palliris", corto: "Palliris", posicion: new THREE.Vector3(-78, 40, -74), pisoPos: new THREE.Vector3(-78, 7.2, -74), elemento: null, enlace: "palliri.html" },
-    { texto: "Monumento al Minero", corto: "Minero", posicion: new THREE.Vector3(-111.5, 57, -13), pisoPos: new THREE.Vector3(-111.5, 7.2, -13), elemento: null, enlace: "minero.html", radio: 28.0 }
+    { texto: "Monumento a Irineo Pimentel Rojas", corto: "Irineo", posicion: new THREE.Vector3(-73, 41, 22.5), pisoPos: new THREE.Vector3(-73, 7.2, 22.5), elemento: null, enlace: "irineo.html", _vis: false, _lx: 0, _ly: 0 },
+    { texto: "Monumento a Federico Escobar", corto: "Federico", posicion: new THREE.Vector3(-70, 40, 11.5), pisoPos: new THREE.Vector3(-70, 7.2, 11.5), elemento: null, enlace: "federico.html", _vis: false, _lx: 0, _ly: 0 },
+    { texto: "Monumento a Cesar, Gillermo e Isaac", corto: "Mártires", posicion: new THREE.Vector3(-74, 39, -38), pisoPos: new THREE.Vector3(-74, 7.2, -38), elemento: null, enlace: "cesar.html", _vis: false, _lx: 0, _ly: 0 },
+    { texto: "Monumento a las Palliris", corto: "Palliris", posicion: new THREE.Vector3(-78, 40, -74), pisoPos: new THREE.Vector3(-78, 7.2, -74), elemento: null, enlace: "palliri.html", _vis: false, _lx: 0, _ly: 0 },
+    { texto: "Monumento al Minero", corto: "Minero", posicion: new THREE.Vector3(-111.5, 57, -13), pisoPos: new THREE.Vector3(-111.5, 7.2, -13), elemento: null, enlace: "minero.html", radio: 28.0, _vis: false, _lx: 0, _ly: 0 }
 ];
 
 // ====================================================
@@ -193,6 +383,10 @@ function congelarObjetoEstatico(objeto) {
         if (c && !c.isSkinnedMesh && !c.isBone && c.type !== 'Bone') {
             c.matrixAutoUpdate = false;
             c.updateMatrix();
+            if (c.isMesh && c.geometry) {
+                if (!c.geometry.boundingSphere) c.geometry.computeBoundingSphere();
+                if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+            }
         }
     });
 }
@@ -212,7 +406,7 @@ function calcularLimitesSeguros(objeto) {
         if (child && child.isMesh && child.geometry) {
             var posAttr = child.geometry.attributes && child.geometry.attributes.position;
             if (posAttr && typeof posAttr.getX === 'function') {
-                var stride = Math.max(1, Math.floor(posAttr.count / 500));
+                var stride = Math.max(1, Math.floor(posAttr.count / 350));
                 for (var i = 0; i < posAttr.count; i += stride) {
                     v.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
                     v.applyMatrix4(child.matrixWorld);
@@ -257,14 +451,14 @@ function calcularLimitesSeguros(objeto) {
 }
 
 // ====================================================
-// VISORES 3D DE SELECCIÓN USANDO UN SOLO RENDERER COMPARTIDO (CERO ERRORES EN THREE.MIN.JS)
+// VISORES 3D DE SELECCIÓN USANDO UN SOLO RENDERER COMPARTIDO
 // ====================================================
 var _offscreenPreviewRenderer = null;
 
 function obtenerRendererPreviewCompartido(w, h) {
     if (!_offscreenPreviewRenderer) {
-        _offscreenPreviewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "high-performance" });
-        _offscreenPreviewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+        _offscreenPreviewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, powerPreference: "high-performance" });
+        _offscreenPreviewRenderer.setPixelRatio(1.0);
         _offscreenPreviewRenderer.gammaOutput = true;
         _offscreenPreviewRenderer.gammaFactor = 2.2;
     }
@@ -276,17 +470,16 @@ function inicializarVisorPreview3D(tipo, canvasId) {
     var canvas = document.getElementById(canvasId);
     if (!canvas) return;
 
-    var dpr = Math.min(window.devicePixelRatio || 1, 2.0);
-    var w = 360;
-    var h = 320;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    var w = 320;
+    var h = 280;
+    canvas.width = w;
+    canvas.height = h;
     previewCanvasCtx[tipo] = canvas.getContext('2d');
 
     var pScene = new THREE.Scene();
     var pCamera = new THREE.PerspectiveCamera(34, w / h, 0.1, 200);
 
-    var amb = new THREE.AmbientLight(0xffffff, 1.1);
+    var amb = new THREE.AmbientLight(0xffffff, 1.15);
     pScene.add(amb);
 
     var dirFront = new THREE.DirectionalLight(0xfff4d6, 1.45);
@@ -312,12 +505,13 @@ function inicializarVisorPreview3D(tipo, canvasId) {
 
         model.traverse(function(c) {
             if (c && c.isMesh) {
+                c.castShadow = false;
+                c.receiveShadow = false;
                 c.frustumCulled = false;
                 mejorarCalidadMaterial(c.material);
             }
         });
 
-        // Si el modelo trae animación de Mixamo, activarla suavemente también en el visor de selección
         if (gltf.animations && gltf.animations.length > 0) {
             var pMixer = new THREE.AnimationMixer(model);
             var clip = gltf.animations[0];
@@ -369,7 +563,7 @@ function inicializarVisorPreview3D(tipo, canvasId) {
 function renderizarVisoresPreviewPersonajes(delta, elapsedTime) {
     if (!seleccionPersonajeActiva) return;
     var anguloFrontalSuave = Math.sin(elapsedTime * 1.4) * 0.25;
-    var sharedRenderer = obtenerRendererPreviewCompartido(360, 320);
+    var sharedRenderer = obtenerRendererPreviewCompartido(320, 280);
 
     ['minero', 'minera'].forEach(function(tipo) {
         var s = previewScenes[tipo];
@@ -402,37 +596,36 @@ function crearModalSeleccionPersonaje() {
     selectorPersonajeModalEl = document.createElement('div');
     selectorPersonajeModalEl.id = 'modal-seleccion-personaje';
     selectorPersonajeModalEl.style.cssText =
-        'position:fixed; inset:0; width:100vw; height:100vh; background:rgba(4,12,8,0.84); ' +
-        'backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:98000; ' +
-        'display:none; justify-content:center; align-items:center; padding:14px; user-select:none; ' +
-        'font-family:Montserrat,sans-serif; opacity:0; transition:opacity 0.35s ease;';
+        'position:fixed; inset:0; width:100vw; height:100vh; background:rgba(4,12,8,0.86); ' +
+        'z-index:98000; display:none; justify-content:center; align-items:center; padding:14px; user-select:none; ' +
+        'font-family:Montserrat,sans-serif; opacity:0; transition:opacity 0.3s ease;';
 
     selectorPersonajeModalEl.innerHTML =
-        '<div style="background:rgba(14,20,24,0.96); border:2px solid #e0b066; border-radius:24px; padding:20px 28px; max-width:960px; width:95vw; max-height:94vh; display:flex; flex-direction:column; justify-content:center; text-align:center; box-shadow:0 24px 65px rgba(0,0,0,0.94), 0 0 38px rgba(224,176,102,0.24);">' +
+        '<div style="background:rgba(14,20,24,0.97); border:2px solid #e0b066; border-radius:24px; padding:20px 28px; max-width:960px; width:95vw; max-height:94vh; display:flex; flex-direction:column; justify-content:center; text-align:center; box-shadow:0 20px 55px rgba(0,0,0,0.92);">' +
             '<div style="color:#facc15; font-size:0.75rem; font-weight:800; letter-spacing:3px; text-transform:uppercase; margin-bottom:4px;">✨ PLAZA DEL MINERO - SIGLO XX ✨</div>' +
-            '<h2 style="font-family:Cinzel Decorative,Cinzel,serif; color:#ffffff; font-size:clamp(1.4rem, 2.3vw, 2.0rem); margin:0 0 4px 0; letter-spacing:2px; text-shadow:0 4px 14px rgba(0,0,0,0.8);">ELIGE TU PERSONAJE</h2>' +
+            '<h2 style="font-family:Cinzel Decorative,Cinzel,serif; color:#ffffff; font-size:clamp(1.4rem, 2.3vw, 2.0rem); margin:0 0 4px 0; letter-spacing:2px;">ELIGE TU PERSONAJE</h2>' +
             '<p style="color:#cbd5e1; font-size:0.85rem; margin:0 0 14px 0; line-height:1.35;">Selecciona con quién deseas recorrer a pie la histórica Plaza del Minero:</p>' +
             
             '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(310px, 1fr)); gap:22px; margin-bottom:8px; align-items:stretch;">' +
                 
                 // TARJETA 1: MINERO
-                '<div id="card-elegir-minero" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(224,176,102,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.22s ease, box-shadow 0.22s ease; display:flex; flex-direction:column; align-items:center; box-shadow:0 12px 30px rgba(0,0,0,0.7);">' +
-                    '<div style="width:100%; height:clamp(240px, 38vh, 320px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(250,204,21,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(250,204,21,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden; box-shadow:inset 0 0 28px rgba(0,0,0,0.8);">' +
-                        '<canvas id="preview-canvas-minero" style="width:100%; height:100%; max-width:360px; max-height:320px; object-fit:contain; display:block;"></canvas>' +
+                '<div id="card-elegir-minero" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(224,176,102,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.2s ease; display:flex; flex-direction:column; align-items:center;">' +
+                    '<div style="width:100%; height:clamp(240px, 38vh, 300px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(250,204,21,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(250,204,21,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden;">' +
+                        '<canvas id="preview-canvas-minero" style="width:100%; height:100%; max-width:320px; max-height:280px; object-fit:contain; display:block;"></canvas>' +
                     '</div>' +
                     '<h3 style="font-family:Cinzel,serif; color:#fde047; font-size:1.28rem; margin:0 0 4px 0; letter-spacing:1.5px;">MINERO</h3>' +
                     '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Trabajador del subsuelo de Siglo XX con guardatojo y equipo tradicional.</p>' +
-                    '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #e0b066, #facc15); color:#0a0f0d; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase; box-shadow:0 4px 16px rgba(250,204,21,0.4);">ELEGIR MINERO</button>' +
+                    '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #e0b066, #facc15); color:#0a0f0d; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase;">ELEGIR MINERO</button>' +
                 '</div>' +
 
                 // TARJETA 2: MINERA
-                '<div id="card-elegir-minera" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(74,222,128,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.22s ease, box-shadow 0.22s ease; display:flex; flex-direction:column; align-items:center; box-shadow:0 12px 30px rgba(0,0,0,0.7);">' +
-                    '<div style="width:100%; height:clamp(240px, 38vh, 320px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(74,222,128,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(74,222,128,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden; box-shadow:inset 0 0 28px rgba(0,0,0,0.8);">' +
-                        '<canvas id="preview-canvas-minera" style="width:100%; height:100%; max-width:360px; max-height:320px; object-fit:contain; display:block;"></canvas>' +
+                '<div id="card-elegir-minera" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(74,222,128,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.2s ease; display:flex; flex-direction:column; align-items:center;">' +
+                    '<div style="width:100%; height:clamp(240px, 38vh, 300px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(74,222,128,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(74,222,128,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden;">' +
+                        '<canvas id="preview-canvas-minera" style="width:100%; height:100%; max-width:320px; max-height:280px; object-fit:contain; display:block;"></canvas>' +
                     '</div>' +
                     '<h3 style="font-family:Cinzel,serif; color:#86efac; font-size:1.28rem; margin:0 0 4px 0; letter-spacing:1.5px;">MINERA</h3>' +
                     '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Mujer minera y valiente Palliri, símbolo de lucha e historia en Llallagua.</p>' +
-                    '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #22c55e, #4ade80); color:#05140b; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase; box-shadow:0 4px 16px rgba(74,222,128,0.4);">ELEGIR MINERA</button>' +
+                    '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #22c55e, #4ade80); color:#05140b; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase;">ELEGIR MINERA</button>' +
                 '</div>' +
 
             '</div>' +
@@ -450,24 +643,24 @@ function crearModalSeleccionPersonaje() {
     [cardMinero, cardMinera].forEach(function(card) {
         if (!card) return;
         card.addEventListener('mouseenter', function() {
-            card.style.transform = 'translateY(-4px) scale(1.01)';
-            card.style.boxShadow = '0 18px 38px rgba(0,0,0,0.88), 0 0 28px rgba(224,176,102,0.42)';
+            card.style.transform = 'translateY(-4px)';
         });
         card.addEventListener('mouseleave', function() {
-            card.style.transform = 'translateY(0) scale(1)';
-            card.style.boxShadow = '0 12px 30px rgba(0,0,0,0.7)';
+            card.style.transform = 'translateY(0)';
         });
     });
 
     if (cardMinero) {
         cardMinero.addEventListener('click', function(e) {
             e.stopPropagation();
+            inicializarAudioProcedural();
             window.seleccionarPersonaje('minero');
         });
     }
     if (cardMinera) {
         cardMinera.addEventListener('click', function(e) {
             e.stopPropagation();
+            inicializarAudioProcedural();
             window.seleccionarPersonaje('minera');
         });
     }
@@ -478,6 +671,7 @@ window.mostrarSelectorPersonaje = function() {
         crearModalSeleccionPersonaje();
     }
     keys = {};
+    detenerSonidoPasos();
     if (document.pointerLockElement) {
         document.exitPointerLock();
     }
@@ -504,10 +698,9 @@ window.seleccionarPersonaje = function(tipo) {
         selectorPersonajeModalEl.style.opacity = '0';
         setTimeout(function() {
             if (selectorPersonajeModalEl) selectorPersonajeModalEl.style.display = 'none';
-        }, 300);
+        }, 280);
     }
 
-    // Mostrar de inmediato mientras termina de aplicar el modelo seleccionado
     characterGroup.visible = true;
     if (hudGuiaEl) hudGuiaEl.style.opacity = '1';
 
@@ -613,8 +806,10 @@ function actualizarAnimacionMinero(delta, isWalking, isRunning) {
     if (characterHasAnimations && characterMixer && characterActions.walk) {
         characterActions.walk.paused = !isWalking;
         characterActions.walk.timeScale = isRunning ? 1.45 : 1.0;
-        characterMixer.update(delta);
-        fijarCaderaEnElSitio();
+        if (isWalking) {
+            characterMixer.update(delta);
+            fijarCaderaEnElSitio();
+        }
         characterGroup.position.y = player.position.y + footOffset;
         return;
     }
@@ -655,6 +850,7 @@ function actualizarAnimacionMinero(delta, isWalking, isRunning) {
     }
 }
 
+// 👉 PERSONAJE SIN SOMBRA (castShadow = false, receiveShadow = false)
 function aplicarGltfAlPersonaje(gltf, tipo) {
     while (characterGroup.children.length > 0) {
         characterGroup.remove(characterGroup.children[0]);
@@ -666,8 +862,8 @@ function aplicarGltfAlPersonaje(gltf, tipo) {
 
     model.traverse(function(child) {
         if (child && child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
+            child.castShadow = false;
+            child.receiveShadow = false;
             child.frustumCulled = false;
             mejorarCalidadMaterial(child.material);
         }
@@ -720,7 +916,6 @@ function cargarModeloPersonaje(tipo, onComplete) {
         aplicarGltfAlPersonaje(gltf, clave);
         if (onComplete) onComplete();
     }, function() {
-        console.warn("⚠️ Usando modelo principal de respaldo para " + clave);
         cargarGLBConRespaldo(MODELOS_PERSONAJES.minero, function(gltfFallback) {
             aplicarGltfAlPersonaje(gltfFallback, clave);
             if (onComplete) onComplete();
@@ -731,7 +926,7 @@ function cargarModeloPersonaje(tipo, onComplete) {
 }
 
 // ====================================================
-// SISTEMA DE APERTURA Y RETORNO INSTANTÁNEO DE MONUMENTOS (0 SEGUNDOS DE CARGA)
+// SISTEMA DE APERTURA Y RETORNO INSTANTÁNEO DE MONUMENTOS
 // ====================================================
 function guardarEstadoJugadorEnSesion() {
     try {
@@ -779,6 +974,7 @@ window.abrirMonumentoInstantaneo = function(enlaceUrl) {
     if (!enlaceUrl) return;
 
     guardarEstadoJugadorEnSesion();
+    detenerSonidoPasos();
 
     keys = {};
     if (document.pointerLockElement) {
@@ -880,7 +1076,7 @@ window.addEventListener('popstate', function() {
 });
 
 // ====================================================
-// MEJORA DE NITIDEZ DE TEXTURAS (FILTRADO ANISOTRÓPICO MÁXIMO)
+// OPTIMIZACIÓN DE TEXTURAS Y MATERIALES
 // ====================================================
 function mejorarCalidadMaterial(material) {
     if (!material) return;
@@ -888,21 +1084,31 @@ function mejorarCalidadMaterial(material) {
     for (var i = 0; i < mats.length; i++) {
         var m = mats[i];
         if (!m) continue;
-        if (m.map) m.map.anisotropy = maxAnisotropy;
-        if (m.normalMap) m.normalMap.anisotropy = maxAnisotropy;
-        if (m.roughnessMap) m.roughnessMap.anisotropy = maxAnisotropy;
-        if (m.metalnessMap) m.metalnessMap.anisotropy = maxAnisotropy;
+        if (m.map) {
+            m.map.anisotropy = maxAnisotropy;
+        }
+        m.shadowSide = null;
     }
 }
 
 // ====================================================
-// REGISTRO SEGURO DE COLISIONES + CONGELAMIENTO DE MATRICES
+// REGISTRO SEGURO DE COLISIONES + ESFERAS DE PROXIMIDAD PARA FLUIDEZ
 // ====================================================
+function prepararEsferaColisionMundial(mesh) {
+    if (!mesh || !mesh.geometry) return;
+    if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+    var sphere = mesh.geometry.boundingSphere.clone();
+    sphere.applyMatrix4(mesh.matrixWorld);
+    mesh.userData.worldCenter = sphere.center;
+    mesh.userData.worldRadius = sphere.radius;
+}
+
 function registrarParaColision(objeto, esMuro) {
     if (!objeto) return;
     congelarObjetoEstatico(objeto);
     objeto.traverse(function(child) {
         if (child && child.isMesh && child.geometry) {
+            prepararEsferaColisionMundial(child);
             collisionMeshes.push(child);
             if (esMuro) {
                 wallMeshes.push(child);
@@ -973,6 +1179,7 @@ function construirCurvasTourPlaza() {
 
 window.iniciarTourPlaza = function(mostrarUI) {
     if (mostrarUI === undefined) mostrarUI = true;
+    detenerSonidoPasos();
 
     if (window.historiaEnCurso && typeof window.cerrarVentanaHistoria === 'function') {
         window.cerrarVentanaHistoria();
@@ -1004,9 +1211,7 @@ window.terminarTourPlaza = function(omitirSelector) {
     if (tourOverlayEl) tourOverlayEl.style.display = 'none';
     placeCharacterAndCamera(clock.getElapsedTime());
 
-    if (composer && filmPass && filmPass.enabled) {
-        composer.render();
-    } else if (renderer && scene && camera) {
+    if (renderer && scene && camera) {
         renderer.render(scene, camera);
     }
 
@@ -1020,7 +1225,7 @@ window.terminarTourPlaza = function(omitirSelector) {
 };
 
 // ====================================================
-// 1. MINIMAPA / RADAR 2D INTERACTIVO (ORIENTADO AL FRENTE DEL JUGADOR)
+// 1. MINIMAPA / RADAR 2D INTERACTIVO
 // ====================================================
 function mundoARadar(wx, wz, cx, cy) {
     var dx = wx - player.position.x;
@@ -1061,10 +1266,10 @@ function crearMinimapaRadar() {
     minimapContainerEl = document.createElement('div');
     minimapContainerEl.id = 'minimapa-radar-container';
     minimapContainerEl.style.cssText =
-        'position:fixed; bottom:78px; left:30px; width:185px; background:rgba(10,16,20,0.88); ' +
-        'backdrop-filter:blur(8px); border:1.5px solid rgba(224,176,102,0.55); border-radius:18px; ' +
-        'padding:10px; z-index:650; box-shadow:0 8px 28px rgba(0,0,0,0.75); pointer-events:auto; ' +
-        'font-family:Montserrat,sans-serif; color:#e0dacf; user-select:none; transition:opacity 0.3s ease;';
+        'position:fixed; bottom:78px; left:30px; width:185px; background:rgba(10,16,20,0.92); ' +
+        'border:1.5px solid rgba(224,176,102,0.55); border-radius:18px; ' +
+        'padding:10px; z-index:650; box-shadow:0 8px 24px rgba(0,0,0,0.7); pointer-events:auto; ' +
+        'font-family:Montserrat,sans-serif; color:#e0dacf; user-select:none;';
 
     var tituloMapa = document.createElement('div');
     tituloMapa.style.cssText = 'font-size:0.68rem; font-weight:800; color:#facc15; letter-spacing:1.2px; text-align:center; margin-bottom:6px; text-transform:uppercase;';
@@ -1260,11 +1465,7 @@ function actualizarMinimapaRadar(time) {
 window.tomarFotoPostal = function() {
     if (!renderer || !scene || !camera || monumentoModalActivo) return;
 
-    if (composer && filmPass && filmPass.enabled) {
-        composer.render();
-    } else {
-        renderer.render(scene, camera);
-    }
+    renderer.render(scene, camera);
 
     var flashEl = document.createElement('div');
     flashEl.style.cssText = 'position:fixed; inset:0; background:#ffffff; z-index:999999; opacity:0.92; pointer-events:none; transition:opacity 0.45s ease;';
@@ -1340,7 +1541,7 @@ window.tomarFotoPostal = function() {
 };
 
 // ====================================================
-// HUD DE GUÍA (EN LA PARTE INFERIOR), BOTONES Y OVERLAY DEL TOUR
+// HUD DE GUÍA, BOTONES Y OVERLAY DEL TOUR
 // ====================================================
 function crearHUDGuia() {
     var viejoHud = document.getElementById('hud-guia-recorrido');
@@ -1352,18 +1553,18 @@ function crearHUDGuia() {
 
     hudGuiaEl = document.createElement('div');
     hudGuiaEl.id = 'hud-guia-recorrido';
-    hudGuiaEl.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:rgba(5,15,10,0.90); border:1.5px solid #c9a84c; color:#fff; padding:10px 22px; border-radius:40px; font-family:Montserrat,sans-serif; font-size:0.86rem; font-weight:600; z-index:9000; display:flex; align-items:center; gap:12px; box-shadow:0 4px 20px rgba(0,0,0,0.7); pointer-events:none; transition:opacity 0.4s ease; opacity:0; white-space:nowrap; max-width:92vw;';
+    hudGuiaEl.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:rgba(5,15,10,0.92); border:1.5px solid #c9a84c; color:#fff; padding:10px 22px; border-radius:40px; font-family:Montserrat,sans-serif; font-size:0.86rem; font-weight:600; z-index:9000; display:flex; align-items:center; gap:12px; box-shadow:0 4px 16px rgba(0,0,0,0.65); pointer-events:none; transition:opacity 0.3s ease; opacity:0; white-space:nowrap; max-width:92vw;';
     hudGuiaEl.innerHTML = '<span style="color:#facc15; font-weight:800;">🧭 RECORRIDO:</span> <span id="hud-guia-texto">Camina hacia el Punto 01 (Anillo Dorado)</span>';
     document.body.appendChild(hudGuiaEl);
 
     hudPromptEl = document.createElement('div');
     hudPromptEl.id = 'hud-prompt-interaccion';
-    hudPromptEl.style.cssText = 'position:fixed; bottom:76px; left:50%; transform:translateX(-50%); background:rgba(10,25,18,0.94); border:2px solid #4ade80; color:#fff; padding:11px 24px; border-radius:50px; font-family:Montserrat,sans-serif; font-size:0.92rem; font-weight:700; z-index:9001; display:none; box-shadow:0 0 25px rgba(34,197,94,0.5); pointer-events:none; white-space:nowrap;';
+    hudPromptEl.style.cssText = 'position:fixed; bottom:76px; left:50%; transform:translateX(-50%); background:rgba(10,25,18,0.94); border:2px solid #4ade80; color:#fff; padding:11px 24px; border-radius:50px; font-family:Montserrat,sans-serif; font-size:0.92rem; font-weight:700; z-index:9001; display:none; box-shadow:0 0 20px rgba(34,197,94,0.45); pointer-events:none; white-space:nowrap;';
     document.body.appendChild(hudPromptEl);
 
     tourOverlayEl = document.createElement('div');
     tourOverlayEl.id = 'tour-aereo-overlay';
-    tourOverlayEl.style.cssText = 'position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:rgba(10,16,22,0.90); backdrop-filter:blur(10px); border:1.5px solid rgba(224,176,102,0.6); color:#fff; padding:14px 24px; border-radius:20px; font-family:Montserrat,sans-serif; z-index:9500; display:none; align-items:center; gap:20px; box-shadow:0 12px 35px rgba(0,0,0,0.8); min-width:340px;';
+    tourOverlayEl.style.cssText = 'position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:rgba(10,16,22,0.92); border:1.5px solid rgba(224,176,102,0.6); color:#fff; padding:14px 24px; border-radius:20px; font-family:Montserrat,sans-serif; z-index:9500; display:none; align-items:center; gap:20px; box-shadow:0 10px 28px rgba(0,0,0,0.75); min-width:340px;';
     tourOverlayEl.innerHTML =
         '<div style="flex:1;">' +
             '<div id="tour-aereo-label" style="color:#facc15; font-size:0.8rem; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px;">✈️ Recorrido Aéreo por la Plaza...</div>' +
@@ -1380,6 +1581,7 @@ function crearHUDGuia() {
     if (btnSaltar) {
         btnSaltar.addEventListener('click', function(e) {
             e.stopPropagation();
+            inicializarAudioProcedural();
             window.terminarTourPlaza();
         });
     }
@@ -1504,7 +1706,7 @@ function construirEstacionesYCamino() {
             side: THREE.DoubleSide,
             depthWrite: false
         });
-        var ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3.4, 36), ringMat);
+        var ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3.4, 20), ringMat);
         ring.rotation.x = -Math.PI / 2;
 
         var beamMat = new THREE.MeshBasicMaterial({
@@ -1514,18 +1716,20 @@ function construirEstacionesYCamino() {
             side: THREE.DoubleSide,
             depthWrite: false
         });
-        var beam = new THREE.Mesh(new THREE.CircleGeometry(2.5, 28), beamMat);
+        var beam = new THREE.Mesh(new THREE.CircleGeometry(2.5, 16), beamMat);
         beam.rotation.x = -Math.PI / 2;
 
         g.add(ring);
         g.add(beam);
+        g.matrixAutoUpdate = false;
+        g.updateMatrix();
         storyRingsGroup.add(g);
 
         var divEst = null;
         if (etiquetasContainer) {
             divEst = document.createElement('div');
             divEst.className = 'etiqueta-estacion-historia';
-            divEst.style.cssText = 'position:absolute; left:0; top:0; will-change:transform; background:rgba(201,168,76,0.95); color:#050d0a; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.78rem; padding:5px 12px; border-radius:20px; pointer-events:none; white-space:nowrap; box-shadow:0 2px 10px rgba(0,0,0,0.6); border:1.5px solid #fff;';
+            divEst.style.cssText = 'position:absolute; left:0; top:0; will-change:transform; background:rgba(201,168,76,0.95); color:#050d0a; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.78rem; padding:5px 12px; border-radius:20px; pointer-events:none; white-space:nowrap; box-shadow:0 2px 8px rgba(0,0,0,0.5); border:1.5px solid #fff;';
             divEst.innerText = '📜 Punto ' + est.numero + ': ' + est.titulo.split('(')[0];
             etiquetasContainer.appendChild(divEst);
         }
@@ -1536,12 +1740,15 @@ function construirEstacionesYCamino() {
             beam: beam,
             labelDiv: divEst,
             estacionIndex: idx,
-            dentroAhora: false
+            dentroAhora: false,
+            _vis: false,
+            _lx: 0,
+            _ly: 0
         });
     });
 
     var curvaCamino = new THREE.CatmullRomCurve3(puntosCamino);
-    var puntosSuaves = curvaCamino.getPoints(140);
+    var puntosSuaves = curvaCamino.getPoints(80);
     var lineaGeo = new THREE.BufferGeometry().setFromPoints(puntosSuaves);
     var lineaMat = new THREE.LineDashedMaterial({
         color: 0xfde047,
@@ -1553,9 +1760,11 @@ function construirEstacionesYCamino() {
     });
     var lineaGuia = new THREE.Line(lineaGeo, lineaMat);
     if (lineaGuia.computeLineDistances) lineaGuia.computeLineDistances();
+    lineaGuia.matrixAutoUpdate = false;
+    lineaGuia.updateMatrix();
     storyRingsGroup.add(lineaGuia);
 
-    var arrowGeo = new THREE.ConeGeometry(0.65, 1.8, 12);
+    var arrowGeo = new THREE.ConeGeometry(0.65, 1.8, 8);
     arrowGeo.rotateX(Math.PI / 2);
     var arrowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.9 });
     guideArrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
@@ -1577,14 +1786,14 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// INICIALIZACIÓN DE LA ESCENA
+// INICIALIZACIÓN DE LA ESCENA (MÁXIMA FLUIDEZ Y 0 SOMBRAS DINÁMICAS)
 // ====================================================
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0013);
+    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0014);
     
-    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.25, 1800);
+    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 950);
     camera.position.set(-35, 58, 45);
     camera.lookAt(new THREE.Vector3(-92, 12, -55));
 
@@ -1592,25 +1801,23 @@ function init() {
 
     var manager = new THREE.LoadingManager();
 
-    // 👉 RENDERER EN ALTA CALIDAD VISUAL
+    // 👉 RENDERER ULTRA RÁPIDO: Desactivamos shadowMap para eliminar el doble pase de geometría en GPU
     renderer = new THREE.WebGLRenderer({ 
         antialias: true, 
         powerPreference: "high-performance",
-        precision: "highp"
+        precision: "mediump",
+        stencil: false
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0)); 
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.0));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15; 
+    renderer.toneMappingExposure = 1.12; 
     renderer.gammaOutput = true;
     renderer.gammaFactor = 2.2;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = false;
     document.body.appendChild(renderer.domElement);
 
-    if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
-        maxAnisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-    }
+    maxAnisotropy = 1;
 
     crearHUDGuia();
     
@@ -1625,18 +1832,13 @@ function init() {
     };
 
     manager.onLoad = function () {
-        console.log("✅ Carga al 100%. Mallas de pared:", wallMeshes.length, "| Obstáculos:", circleObstacles.length, "| Pisos y Gradas:", floorMeshes.length);
         var loaderContainer = document.getElementById("loader-container");
         if (loaderContainer) loaderContainer.classList.add("loaded");
-
-        if (directionalLight && directionalLight.shadow) {
-            directionalLight.shadow.needsUpdate = true;
-        }
 
         var pantallaBienvenida = document.getElementById('pantalla-bienvenida');
         var volvioDeMonumento = restaurarEstadoJugadorDeSesion();
 
-        player.position.y = getFloorHeightBelow(player.position.x, player.position.z, player.position.y);
+        player.position.y = getFloorHeightBelow(player.position.x, player.position.z, player.position.y, null, true);
         characterGroup.position.set(
             player.position.x,
             player.position.y + (CONFIG_PLAYER.characterFootOffset || 0),
@@ -1660,6 +1862,7 @@ function init() {
 
         if (pantallaBienvenida) {
             pantallaBienvenida.addEventListener('click', function() {
+                inicializarAudioProcedural();
                 window.iniciarTourPlaza(true);
             }, { once: true });
         }
@@ -1667,6 +1870,7 @@ function init() {
         var btnExplorar = document.getElementById('btn-explorar-plaza');
         if (btnExplorar) {
             btnExplorar.onclick = function() {
+                inicializarAudioProcedural();
                 window.iniciarTourPlaza(true);
             };
         }
@@ -1679,41 +1883,23 @@ function init() {
     audioLoader.load('assets/mieros.mp3', function(buffer) {
         sound.setBuffer(buffer);
         sound.setLoop(true);
-        sound.setVolume(0.3);
+        sound.setVolume(0.28);
     });
     
-    composer = new THREE.EffectComposer(renderer);
-    renderPass = new THREE.RenderPass(scene, camera);
-    composer.addPass(renderPass);
-
-    filmPass = new THREE.FilmPass(0.14, 0.02, 1024, false);
-    filmPass.enabled = false;
-    composer.addPass(filmPass);
-    
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.70);
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.78);
     scene.add(ambientLight);
     
-    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.70);
+    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.78);
     scene.add(hemisphereLight);
     
-    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.38);
+    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.32);
     directionalLight.position.set(60, 140, 80);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    directionalLight.shadow.camera.near = 1;
-    directionalLight.shadow.camera.far = 450;
-    directionalLight.shadow.camera.left = -180;
-    directionalLight.shadow.camera.right = 180;
-    directionalLight.shadow.camera.top = 180;
-    directionalLight.shadow.camera.bottom = -180;
-    directionalLight.shadow.bias = -0.0005;
-    directionalLight.shadow.autoUpdate = false;
-    directionalLight.shadow.needsUpdate = true;
+    directionalLight.castShadow = false;
     scene.add(directionalLight);
     
-    directionalLight2 = new THREE.DirectionalLight(0xaaccff, 0.48);
+    directionalLight2 = new THREE.DirectionalLight(0xaaccff, 0.45);
     directionalLight2.position.set(-60, 40, -60);
+    directionalLight2.castShadow = false;
     scene.add(directionalLight2);
 
     var textureLoader = new THREE.TextureLoader(manager);
@@ -1723,6 +1909,7 @@ function init() {
         }
         texture.anisotropy = maxAnisotropy;
         texture.mapping = THREE.EquirectangularReflectionMapping;
+        texturasCieloCache["imagenes/cielo.jpg"] = texture;
         scene.background = texture;
     });
     
@@ -1768,7 +1955,7 @@ function init() {
         plaza.traverse(function(obj) {
             if (obj && obj.isMesh && obj.geometry) {
                 obj.castShadow = false;
-                obj.receiveShadow = true;
+                obj.receiveShadow = false;
                 mejorarCalidadMaterial(obj.material);
                 if (Array.isArray(obj.material)) {
                     obj.material.forEach(function(m) {
@@ -1779,6 +1966,7 @@ function init() {
                 }
                 obj.matrixAutoUpdate = false;
                 obj.updateMatrix();
+                prepararEsferaColisionMundial(obj);
                 collisionMeshes.push(obj);
 
                 var box = new THREE.Box3().setFromObject(obj);
@@ -1798,7 +1986,7 @@ function init() {
     });
 
     // ====================================================
-    // 1.B PRE-CARGAR MODELO BASE DEL MINERO
+    // 1.B PRE-CARGAR MODELO BASE DEL MINERO (SIN SOMBRA)
     // ====================================================
     cargar.load("assets/personaje.glb", function(gltf) {
         aplicarGltfAlPersonaje(gltf, 'minero');
@@ -1807,13 +1995,13 @@ function init() {
         console.error("⚠️ Error al cargar assets/personaje.glb:", err);
     });
 
+    // Cargador optimizado sin sombras dinámicas
     function cargarModeloSeguro(url, callbackExito) {
-        var proyectaSombra = /Pedestal|Palliri|completomina|fuente|reloj|letrasiglo|arbol|banca|poste|pilar/i.test(url);
         cargar.load(url, function(gltf) {
             gltf.scene.traverse(function(c) {
                 if (c && c.isMesh) {
-                    c.castShadow = proyectaSombra;
-                    c.receiveShadow = true;
+                    c.castShadow = false;
+                    c.receiveShadow = false;
                     mejorarCalidadMaterial(c.material);
                 }
             });
@@ -1853,28 +2041,24 @@ function init() {
     });
     
     // ====================================================
-    // 3. POSTES DE ALUMBRADO
+    // 3. POSTES DE ALUMBRADO (OPTIMIZADOS SIN POINTLIGHTS COSTOSOS)
     // ====================================================
     cargarModeloSeguro("assets/poste.glb", function(modeloBase) {
         modeloBase.scale.set(8.5, 8.5, 8.5);
-        var geometriaEsfera = new THREE.SphereGeometry(0.8, 16, 16);
+        var geometriaEsfera = new THREE.SphereGeometry(0.85, 8, 8);
         var materialEsfera = new THREE.MeshBasicMaterial({ color: 0xfffae6 });
 
         function crearPosteConLuz(x, y, z) {
             var posteClonado = modeloBase.clone();
-            var luzFoco = new THREE.PointLight(0xffddaa, 0, 70, 2.0); 
-            luzFoco.visible = false;
-            luzFoco.position.set(0, 20, 0); 
             var bolitaLuz = new THREE.Mesh(geometriaEsfera, materialEsfera);
             bolitaLuz.position.set(0, 18, 0);
             var grupoPoste = new THREE.Group();
             grupoPoste.add(posteClonado);
-            grupoPoste.add(luzFoco);
             grupoPoste.add(bolitaLuz);
             grupoPoste.position.set(x, y, z);
             scene.add(grupoPoste);
             congelarObjetoEstatico(grupoPoste);
-            lucesPostes.push(luzFoco);
+            bulbosPostes.push(bolitaLuz);
 
             registrarParaColision(posteClonado, true);
             agregarObstaculoCircular(x, z, 1.35);
@@ -2109,7 +2293,7 @@ function init() {
 }
 
 // ====================================================
-// MOTOR DE CÁMARA PANORÁMICA Y ESCANEO DE GRADAS / RAMPAS
+// MOTOR DE CÁMARA PANORÁMICA Y ESCANEO RÁPIDO DE PISO Y MUROS
 // ====================================================
 function lerpAngle(a, b, t) {
     var diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
@@ -2161,10 +2345,10 @@ function placeCharacterAndCamera(elapsedTime) {
 
     _desiredCamPosTemp.copy(_targetPointTemp).add(_camDirTemp);
 
-    if (cameraBlockMeshes.length > 0 && (_frameCounter % 2 === 0 || _lastSafeCamDist !== null)) {
+    if (cameraBlockMeshes.length > 0 && (_frameCounter % 6 === 0 || _lastSafeCamDist !== null)) {
         var maxDist = _camDirTemp.length();
         _rayDirTemp.copy(_camDirTemp).divideScalar(maxDist || 1);
-        if (_frameCounter % 2 === 0) {
+        if (_frameCounter % 6 === 0) {
             _cameraRaycaster.set(_targetPointTemp, _rayDirTemp);
             _cameraRaycaster.near = 0.5;
             _cameraRaycaster.far = maxDist;
@@ -2193,49 +2377,80 @@ function placeCharacterAndCamera(elapsedTime) {
 var _floorRaycaster = new THREE.Raycaster();
 var _floorDownVec = new THREE.Vector3(0, -1, 0);
 var _rayOriginTemp = new THREE.Vector3();
+var _nearbyFloorCandidates = [];
+var _nearbyWallCandidates = [];
+var _lastFloorSampleX = Infinity;
+var _lastFloorSampleZ = Infinity;
+var _cachedFloorHeight = CONFIG_PLAYER.baseGroundY;
 
-function getFloorHeightBelow(x, z, currentY, moveDir) {
+function getFloorHeightBelow(x, z, currentY, moveDir, forceCheck) {
     var refY = (currentY !== undefined) ? currentY : player.position.y;
     if (floorMeshes.length === 0) return Math.max(CONFIG_PLAYER.minSafetyY, refY);
 
-    var puntosMuestreo = [[0, 0]];
+    var ox = x;
+    var oz = z;
     if (moveDir && (Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.z) > 0.01)) {
-        puntosMuestreo.push([moveDir.x * 0.75, moveDir.z * 0.75]);
-        puntosMuestreo.push([moveDir.x * 1.4, moveDir.z * 1.4]);
-    } else {
-        puntosMuestreo.push([0.65, 0], [-0.65, 0]);
+        ox += moveDir.x * 0.9;
+        oz += moveDir.z * 0.9;
+    }
+
+    // 👉 Caché espacial de altura de suelo para ahorrar raycasting cuando el movimiento es mínimo
+    if (!forceCheck) {
+        var dSampleSq = (ox - _lastFloorSampleX) * (ox - _lastFloorSampleX) + (oz - _lastFloorSampleZ) * (oz - _lastFloorSampleZ);
+        if (dSampleSq < 0.05) {
+            return _cachedFloorHeight;
+        }
+    }
+    _lastFloorSampleX = ox;
+    _lastFloorSampleZ = oz;
+
+    _nearbyFloorCandidates.length = 0;
+    for (var k = 0; k < floorMeshes.length; k++) {
+        var fm = floorMeshes[k];
+        var wc = fm.userData.worldCenter;
+        var wr = fm.userData.worldRadius;
+        if (wc && wr) {
+            var dx = ox - wc.x;
+            var dz = oz - wc.z;
+            if (dx * dx + dz * dz <= (wr + 4.0) * (wr + 4.0)) {
+                _nearbyFloorCandidates.push(fm);
+            }
+        } else {
+            _nearbyFloorCandidates.push(fm);
+        }
+    }
+
+    if (_nearbyFloorCandidates.length === 0) {
+        _cachedFloorHeight = Math.max(CONFIG_PLAYER.minSafetyY, refY);
+        return _cachedFloorHeight;
     }
 
     var rayStartY = refY + CONFIG_PLAYER.maxStepUp;
+    _rayOriginTemp.set(ox, rayStartY, oz);
+    _floorRaycaster.set(_rayOriginTemp, _floorDownVec);
+    _floorRaycaster.near = 0;
+    _floorRaycaster.far = CONFIG_PLAYER.maxStepUp + CONFIG_PLAYER.maxStepDown + 16.0;
+    var hits = _floorRaycaster.intersectObjects(_nearbyFloorCandidates, false);
+
     var maxReachableY = null;
-
-    for (var k = 0; k < puntosMuestreo.length; k++) {
-        var ox = x + puntosMuestreo[k][0];
-        var oz = z + puntosMuestreo[k][1];
-        _rayOriginTemp.set(ox, rayStartY, oz);
-        _floorRaycaster.set(_rayOriginTemp, _floorDownVec);
-        _floorRaycaster.near = 0;
-        _floorRaycaster.far = CONFIG_PLAYER.maxStepUp + CONFIG_PLAYER.maxStepDown + 20.0;
-        var hits = _floorRaycaster.intersectObjects(floorMeshes, false);
-
-        for (var i = 0; i < hits.length; i++) {
-            var py = hits[i].point.y;
-            if (py >= -2.0 && py <= 32.0 && py <= refY + CONFIG_PLAYER.maxStepUp) {
-                if (maxReachableY === null || py > maxReachableY) {
-                    maxReachableY = py;
-                }
+    for (var i = 0; i < hits.length; i++) {
+        var py = hits[i].point.y;
+        if (py >= -2.0 && py <= 32.0 && py <= refY + CONFIG_PLAYER.maxStepUp) {
+            if (maxReachableY === null || py > maxReachableY) {
+                maxReachableY = py;
             }
         }
     }
 
     if (maxReachableY !== null) {
-        return Math.max(CONFIG_PLAYER.minSafetyY, maxReachableY);
+        _cachedFloorHeight = Math.max(CONFIG_PLAYER.minSafetyY, maxReachableY);
+        return _cachedFloorHeight;
     }
-    return Math.max(CONFIG_PLAYER.minSafetyY, refY);
+    _cachedFloorHeight = Math.max(CONFIG_PLAYER.minSafetyY, refY);
+    return _cachedFloorHeight;
 }
 
 var _wallRaycaster = new THREE.Raycaster();
-var _wallCheckHeights = [2.4];
 var _wallNormal2D = new THREE.Vector3();
 var _moveDirNormTemp = new THREE.Vector3();
 var _slideVecTemp = new THREE.Vector3();
@@ -2244,19 +2459,38 @@ var _zeroVecTemp = new THREE.Vector3(0, 0, 0);
 
 function raycastWalls(feetPos, dir, distance) {
     if (wallMeshes.length === 0 || distance <= 0.0001) return null;
-    var closest = null;
-    for (var i = 0; i < _wallCheckHeights.length; i++) {
-        _rayOriginTemp.set(feetPos.x, feetPos.y + _wallCheckHeights[i], feetPos.z);
-        _wallRaycaster.set(_rayOriginTemp, dir);
-        _wallRaycaster.near = 0;
-        _wallRaycaster.far = distance;
-        var hits = _wallRaycaster.intersectObjects(wallMeshes, false);
-        for (var j = 0; j < hits.length; j++) {
-            var h = hits[j];
-            if (h.face && Math.abs(h.face.normal.y) > 0.45) continue;
-            if (!closest || h.distance < closest.distance) {
-                closest = h;
+
+    _nearbyWallCandidates.length = 0;
+    var maxRange = distance + 4.0;
+    for (var i = 0; i < wallMeshes.length; i++) {
+        var wm = wallMeshes[i];
+        var wc = wm.userData.worldCenter;
+        var wr = wm.userData.worldRadius;
+        if (wc && wr) {
+            var dx = feetPos.x - wc.x;
+            var dz = feetPos.z - wc.z;
+            var rSum = wr + maxRange;
+            if (dx * dx + dz * dz <= rSum * rSum) {
+                _nearbyWallCandidates.push(wm);
             }
+        } else {
+            _nearbyWallCandidates.push(wm);
+        }
+    }
+
+    if (_nearbyWallCandidates.length === 0) return null;
+
+    _rayOriginTemp.set(feetPos.x, feetPos.y + 2.4, feetPos.z);
+    _wallRaycaster.set(_rayOriginTemp, dir);
+    _wallRaycaster.near = 0;
+    _wallRaycaster.far = distance;
+    var hits = _wallRaycaster.intersectObjects(_nearbyWallCandidates, false);
+    var closest = null;
+    for (var j = 0; j < hits.length; j++) {
+        var h = hits[j];
+        if (h.face && Math.abs(h.face.normal.y) > 0.45) continue;
+        if (!closest || h.distance < closest.distance) {
+            closest = h;
         }
     }
     return closest;
@@ -2267,8 +2501,9 @@ function resolverObstaculosCirculares(pos) {
         var obs = circleObstacles[i];
         var dx = pos.x - obs.x;
         var dz = pos.z - obs.z;
-        var dist = Math.hypot(dx, dz);
-        if (dist < obs.r && dist > 0.0001) {
+        var distSq = dx * dx + dz * dz;
+        if (distSq < obs.r * obs.r && distSq > 0.00001) {
+            var dist = Math.sqrt(distSq);
             var empuje = obs.r - dist;
             pos.x += (dx / dist) * empuje;
             pos.z += (dz / dist) * empuje;
@@ -2458,12 +2693,14 @@ var _desiredMoveTemp = new THREE.Vector3();
 
 function updatePlayer(delta, elapsedTime) {
     if (tourActivo) {
+        detenerSonidoPasos();
         actualizarTourAereo(delta);
         return;
     }
 
     if (window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva) {
         player.velocity.set(0, 0, 0);
+        detenerSonidoPasos();
         actualizarAnimacionMinero(delta, false, false);
         placeCharacterAndCamera(elapsedTime);
         return;
@@ -2487,25 +2724,32 @@ function updatePlayer(delta, elapsedTime) {
     var isRunning = keys['ShiftLeft'] || keys['ShiftRight'];
     var speed = isRunning ? CONFIG_PLAYER.runSpeed : CONFIG_PLAYER.moveSpeed;
 
+    actualizarSonidoPasosJugador(isWalking, isRunning, delta);
+
     var targetVelX = _moveDirTemp.x * speed;
     var targetVelZ = _moveDirTemp.z * speed;
     var accel = CONFIG_PLAYER.acceleration;
     player.velocity.x += (targetVelX - player.velocity.x) * Math.min(1, accel * delta);
     player.velocity.z += (targetVelZ - player.velocity.z) * Math.min(1, accel * delta);
 
+    if (!isWalking && Math.abs(player.velocity.x) < 0.01 && Math.abs(player.velocity.z) < 0.01) {
+        player.velocity.x = 0;
+        player.velocity.z = 0;
+    }
+
     _desiredMoveTemp.set(player.velocity.x * delta, 0, player.velocity.z * delta);
-    var allowedMove = tryMoveHorizontal(player.position, _desiredMoveTemp);
+    if (_desiredMoveTemp.lengthSq() > 0.000001) {
+        var allowedMove = tryMoveHorizontal(player.position, _desiredMoveTemp);
 
-    player.position.x += allowedMove.x;
-    player.position.z += allowedMove.z;
+        player.position.x += allowedMove.x;
+        player.position.z += allowedMove.z;
 
-    resolverObstaculosCirculares(player.position);
+        resolverObstaculosCirculares(player.position);
 
-    player.position.x = Math.max(CONFIG_PLAYER.bounds.minX, Math.min(CONFIG_PLAYER.bounds.maxX, player.position.x));
-    player.position.z = Math.max(CONFIG_PLAYER.bounds.minZ, Math.min(CONFIG_PLAYER.bounds.maxZ, player.position.z));
+        player.position.x = Math.max(CONFIG_PLAYER.bounds.minX, Math.min(CONFIG_PLAYER.bounds.maxX, player.position.x));
+        player.position.z = Math.max(CONFIG_PLAYER.bounds.minZ, Math.min(CONFIG_PLAYER.bounds.maxZ, player.position.z));
 
-    if (isWalking || Math.hypot(player.velocity.x, player.velocity.z) > 0.05) {
-        var targetFloorY = getFloorHeightBelow(player.position.x, player.position.z, player.position.y, _moveDirTemp);
+        var targetFloorY = getFloorHeightBelow(player.position.x, player.position.z, player.position.y, _moveDirTemp, false);
         if (targetFloorY > player.position.y) {
             player.position.y += (targetFloorY - player.position.y) * Math.min(1, CONFIG_PLAYER.floorUpSpeed * delta);
         } else {
@@ -2529,6 +2773,8 @@ function updatePlayer(delta, elapsedTime) {
 // EVENTOS Y BUCLE PRINCIPAL OPTIMIZADO
 // ====================================================
 document.addEventListener('keydown', function(e) {
+    inicializarAudioProcedural();
+
     if (monumentoModalActivo) {
         if (e.code === 'Escape') {
             e.preventDefault();
@@ -2573,7 +2819,7 @@ document.addEventListener('keydown', function(e) {
         player.position.set(CONFIG_PLAYER.startPosition[0], CONFIG_PLAYER.startPosition[1], CONFIG_PLAYER.startPosition[2]);
         player.velocity.set(0, 0, 0);
         player.yaw = CONFIG_PLAYER.startYaw;
-        player.position.y = getFloorHeightBelow(player.position.x, player.position.z, CONFIG_PLAYER.baseGroundY);
+        player.position.y = getFloorHeightBelow(player.position.x, player.position.z, CONFIG_PLAYER.baseGroundY, null, true);
     }
 
     if (window.historiaEnCurso && (e.code === 'Escape' || e.code === 'KeyF')) {
@@ -2613,6 +2859,7 @@ document.addEventListener('pointerlockchange', function() {
 });
 
 window.addEventListener('click', function(e) {
+    inicializarAudioProcedural();
     if (monumentoModalActivo || seleccionPersonajeActiva) return;
     if (sound && !sound.isPlaying && sound.buffer) {
         sound.play();
@@ -2626,7 +2873,6 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    if (composer) composer.setSize(window.innerWidth, window.innerHeight);
 }
 
 var _frameCounter = 0;
@@ -2643,6 +2889,10 @@ function animate() {
     var elapsedTime = clock.getElapsedTime();
     _frameCounter++;
 
+    if (_frameCounter % 10 === 0) {
+        modularVientoAmbiental(elapsedTime);
+    }
+
     if (seleccionPersonajeActiva) {
         renderizarVisoresPreviewPersonajes(delta, elapsedTime);
         return;
@@ -2650,130 +2900,130 @@ function animate() {
 
     updatePlayer(delta, elapsedTime);
 
-    if (_frameCounter % 2 === 0) {
+    if (_frameCounter % 5 === 0) {
         verificarZonasDeHistoriaYMonumentos(elapsedTime);
         actualizarMinimapaRadar(elapsedTime);
     }
 
-    var winW = window.innerWidth;
-    var winH = window.innerHeight;
+    // Actualización de etiquetas 2D cada 2 frames para máxima fluidez sin tocar el DOM innecesariamente
+    if (_frameCounter % 2 === 0 && camera) {
+        var winW = window.innerWidth;
+        var winH = window.innerHeight;
 
-    for (var i = 0; i < marcadores.length; i++) {
-        var marcador = marcadores[i];
-        if (marcador.elemento && camera) {
-            _projVec.copy(marcador.posicion).project(camera); 
-            if (_projVec.z < 1 && !window.historiaEnCurso) { 
-                var x = (_projVec.x * 0.5 + 0.5) * winW;
-                var y = (_projVec.y * -0.5 + 0.5) * winH;
-                marcador.elemento.style.transform = 'translate(-50%, -50%) translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px, 0)';
-                if (marcador.elemento.style.display !== 'block') marcador.elemento.style.display = 'block'; 
-            } else {
-                if (marcador.elemento.style.display !== 'none') marcador.elemento.style.display = 'none'; 
+        for (var i = 0; i < marcadores.length; i++) {
+            var marcador = marcadores[i];
+            if (marcador.elemento) {
+                _projVec.copy(marcador.posicion).project(camera); 
+                if (_projVec.z < 1 && !window.historiaEnCurso) { 
+                    var x = Math.round((_projVec.x * 0.5 + 0.5) * winW);
+                    var y = Math.round((_projVec.y * -0.5 + 0.5) * winH);
+                    if (x !== marcador._lx || y !== marcador._ly) {
+                        marcador._lx = x;
+                        marcador._ly = y;
+                        marcador.elemento.style.transform = 'translate(-50%, -50%) translate3d(' + x + 'px,' + y + 'px, 0)';
+                    }
+                    if (!marcador._vis) {
+                        marcador._vis = true;
+                        marcador.elemento.style.display = 'block';
+                    }
+                } else if (marcador._vis) {
+                    marcador._vis = false;
+                    marcador.elemento.style.display = 'none'; 
+                }
+            }
+        }
+
+        for (var j = 0; j < storyRings.length; j++) {
+            var item = storyRings[j];
+            if (item.labelDiv) {
+                if (window.historiaEnCurso || tourActivo) {
+                    if (item._vis) {
+                        item._vis = false;
+                        item.labelDiv.style.display = 'none';
+                    }
+                    continue;
+                }
+                var est = window.ESTACIONES_HISTORIA[item.estacionIndex];
+                _projVec.set(est.zona.x, est.zona.y + 3.0, est.zona.z);
+                var distCamSq = camera.position.distanceToSquared(_projVec);
+                _projVec.project(camera);
+                if (_projVec.z < 1 && distCamSq < 9025) {
+                    var sx = Math.round((_projVec.x * 0.5 + 0.5) * winW);
+                    var sy = Math.round((_projVec.y * -0.5 + 0.5) * winH);
+                    if (sx !== item._lx || sy !== item._ly) {
+                        item._lx = sx;
+                        item._ly = sy;
+                        item.labelDiv.style.transform = 'translate(-50%, -50%) translate3d(' + sx + 'px,' + sy + 'px, 0)';
+                    }
+                    if (!item._vis) {
+                        item._vis = true;
+                        item.labelDiv.style.display = 'block';
+                    }
+                } else if (item._vis) {
+                    item._vis = false;
+                    item.labelDiv.style.display = 'none';
+                }
             }
         }
     }
 
-    for (var j = 0; j < storyRings.length; j++) {
-        var item = storyRings[j];
-        if (item.labelDiv && camera) {
-            if (window.historiaEnCurso || tourActivo) {
-                if (item.labelDiv.style.display !== 'none') item.labelDiv.style.display = 'none';
-                continue;
-            }
-            var est = window.ESTACIONES_HISTORIA[item.estacionIndex];
-            _projVec.set(est.zona.x, est.zona.y + 3.0, est.zona.z);
-            var distCam = camera.position.distanceTo(_projVec);
-            _projVec.project(camera);
-            if (_projVec.z < 1 && distCam < 95) {
-                var sx = (_projVec.x * 0.5 + 0.5) * winW;
-                var sy = (_projVec.y * -0.5 + 0.5) * winH;
-                item.labelDiv.style.transform = 'translate(-50%, -50%) translate3d(' + sx.toFixed(1) + 'px,' + sy.toFixed(1) + 'px, 0)';
-                if (item.labelDiv.style.display !== 'block') item.labelDiv.style.display = 'block';
-            } else {
-                if (item.labelDiv.style.display !== 'none') item.labelDiv.style.display = 'none';
-            }
-        }
-    }
-
-    if (composer && filmPass && filmPass.enabled) {
-        composer.render();
-    } else if (renderer && scene && camera) {
+    if (renderer && scene && camera) {
         renderer.render(scene, camera);
     }
 }
 
 window.cambiarAtmosfera = function(modo) {
-    var textureLoader = new THREE.TextureLoader();
     var texturaRuta = "";
 
     if (modo === 'dia') {
         texturaRuta = "imagenes/cielo.jpg";
         directionalLight.color.setHex(0xffe8cc);
-        directionalLight.intensity = 1.38;
+        directionalLight.intensity = 1.35;
         hemisphereLight.color.setHex(0xffffff);
         hemisphereLight.groundColor.setHex(0x2d1a0e);
         ambientLight.color.setHex(0xffffff);
-        ambientLight.intensity = 0.70;
+        ambientLight.intensity = 0.78;
         if (scene.fog) scene.fog.color.setHex(0xa0c4e0);
-        lucesPostes.forEach(function(luz) { 
-            luz.intensity = 0; 
-            luz.visible = false; 
-        });
-        if (filmPass) {
-            filmPass.enabled = false;
-        }
+        bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xfffae6); });
         
     } else if (modo === 'atardecer' || modo === 'tarde') {
         texturaRuta = "imagenes/atardecer.jpg"; 
         directionalLight.color.setHex(0xff7722);
-        directionalLight.intensity = 0.95;
+        directionalLight.intensity = 1.05;
         hemisphereLight.color.setHex(0xff9944);
         hemisphereLight.groundColor.setHex(0x3a1e12);
-        ambientLight.color.setHex(0xff6622);
-        ambientLight.intensity = 0.48;
+        ambientLight.color.setHex(0xff8844);
+        ambientLight.intensity = 0.62;
         if (scene.fog) scene.fog.color.setHex(0xc06030);
-        lucesPostes.forEach(function(luz) { 
-            luz.visible = true;
-            luz.intensity = 2.0; 
-        });
-        if (filmPass) {
-            filmPass.enabled = true;
-            if (filmPass.uniforms && filmPass.uniforms.nIntensity) {
-                filmPass.uniforms.nIntensity.value = 0.14;
-                filmPass.uniforms.sIntensity.value = 0.02;
-            }
-        }
+        bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffcc55); });
         
     } else if (modo === 'noche' || modo === 'nublado') {
         texturaRuta = "imagenes/noche.png";
-        directionalLight.color.setHex(0x7799dd);
-        directionalLight.intensity = 0.28;
-        hemisphereLight.color.setHex(0x223366);
-        hemisphereLight.groundColor.setHex(0x050a14);
-        ambientLight.color.setHex(0x1a2544);
-        ambientLight.intensity = 0.28;
+        directionalLight.color.setHex(0x88aaee);
+        directionalLight.intensity = 0.55;
+        hemisphereLight.color.setHex(0x334477);
+        hemisphereLight.groundColor.setHex(0x111a2e);
+        ambientLight.color.setHex(0x2a3b66);
+        ambientLight.intensity = 0.52;
         if (scene.fog) scene.fog.color.setHex(0x0a0a1a);
-        lucesPostes.forEach(function(luz) { 
-            luz.visible = true;
-            luz.intensity = 3.5; 
-        });
-        if (filmPass) {
-            filmPass.enabled = true;
-            if (filmPass.uniforms && filmPass.uniforms.nIntensity) {
-                filmPass.uniforms.nIntensity.value = 0.16;
-                filmPass.uniforms.sIntensity.value = 0.025;
-            }
-        }
+        bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffe066); });
     } else {
         return;
     }
 
+    if (texturasCieloCache[texturaRuta]) {
+        scene.background = texturasCieloCache[texturaRuta];
+        return;
+    }
+
+    var textureLoader = new THREE.TextureLoader();
     textureLoader.load(texturaRuta, function (texture) {
         if (THREE.sRGBEncoding) {
             texture.encoding = THREE.sRGBEncoding;
         }
         texture.anisotropy = maxAnisotropy;
         texture.mapping = THREE.EquirectangularReflectionMapping;
+        texturasCieloCache[texturaRuta] = texture;
         scene.background = texture;
     });
 };
@@ -2797,6 +3047,7 @@ document.addEventListener("DOMContentLoaded", function () {
 var btnSalir = document.getElementById("btn-salir");
 if (btnSalir) {
     btnSalir.addEventListener("click", function () {
+        detenerSonidoPasos();
         sessionStorage.removeItem("historiaCompletada");
         sessionStorage.removeItem("estadoJugadorPlaza");
         sessionStorage.removeItem("personajeElegidoPlaza");

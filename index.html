@@ -10,6 +10,211 @@
     <link rel="stylesheet" href="modelo.css">
 
     <style>
+        /* =========================================================
+           DISEÑO MEJORADO: PANTALLA DE CARGA GIGANTE (CASI FULLSCREEN)
+           ========================================================= */
+        #loader-container {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: radial-gradient(circle at center, #0a2216 0%, #030a06 70%, #010402 100%) !important;
+            z-index: 999999 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+            align-items: center !important;
+            padding: 25px !important;
+            box-sizing: border-box !important;
+            user-select: none;
+            overflow: hidden;
+            transition: opacity 0.6s ease, visibility 0.6s ease;
+        }
+
+        /* Resplandor ambiental grande de fondo */
+        #loader-container::before {
+            content: "";
+            position: absolute;
+            width: 850px;
+            height: 850px;
+            background: radial-gradient(circle, rgba(34, 197, 94, 0.16) 0%, rgba(250, 204, 21, 0.06) 45%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            animation: pulsoFondo 4s ease-in-out infinite;
+        }
+
+        /* TARJETA PRINCIPAL GIGANTE (Ocupa casi toda la pantalla) */
+        .loader-content {
+            position: relative !important;
+            z-index: 2 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+            align-items: center !important;
+            text-align: center !important;
+            width: 92vw !important;
+            max-width: 1350px !important;
+            min-height: 84vh !important;
+            padding: 50px 60px !important;
+            box-sizing: border-box !important;
+            background: rgba(6, 20, 13, 0.78) !important;
+            border: 2px solid rgba(34, 197, 94, 0.38) !important;
+            border-radius: 36px !important;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.9), inset 0 0 45px rgba(34, 197, 94, 0.1) !important;
+            backdrop-filter: blur(14px) !important;
+            -webkit-backdrop-filter: blur(14px) !important;
+        }
+
+        /* Anillo giratorio más grande con el escudo al centro */
+        .loader-emblema-wrapper {
+            position: relative;
+            width: 230px;
+            height: 230px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+
+        .loader-anillo-exterior {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 4px solid transparent;
+            border-top-color: #22c55e;
+            border-right-color: #facc15;
+            animation: girarAnillo 2.4s linear infinite;
+            filter: drop-shadow(0 0 14px rgba(34, 197, 94, 0.7));
+        }
+
+        .loader-anillo-interior {
+            position: absolute;
+            width: 84%;
+            height: 84%;
+            border-radius: 50%;
+            border: 3px dashed rgba(250, 204, 21, 0.5);
+            animation: girarAnilloReversa 5s linear infinite;
+        }
+
+        .loader-logo-img {
+            width: 140px;
+            height: auto;
+            filter: drop-shadow(0 0 22px rgba(34, 197, 94, 0.85));
+            animation: flotar 3s ease-in-out infinite;
+        }
+
+        .loader-brand {
+            font-family: 'Montserrat', sans-serif !important;
+            font-weight: 800 !important;
+            font-size: 1.25rem !important;
+            color: #facc15 !important;
+            letter-spacing: 7px !important;
+            text-transform: uppercase !important;
+            margin-bottom: 12px !important;
+            text-shadow: 0 0 14px rgba(250, 204, 21, 0.55) !important;
+        }
+
+        .loader-title-plaza {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif !important;
+            font-size: 4.2rem !important;
+            font-weight: 900 !important;
+            background: linear-gradient(180deg, #ffffff 0%, #4ade80 100%) !important;
+            -webkit-background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            letter-spacing: 5px !important;
+            margin: 6px 0 14px 0 !important;
+            filter: drop-shadow(0 5px 20px rgba(34, 197, 94, 0.45)) !important;
+        }
+
+        .loader-text {
+            font-family: 'Montserrat', sans-serif !important;
+            font-size: 1.35rem !important;
+            font-weight: 600 !important;
+            color: #d1fae5 !important;
+            letter-spacing: 2.5px !important;
+            margin-bottom: 35px !important;
+            opacity: 0.95 !important;
+        }
+
+        /* Barra de progreso gigante */
+        .progress-bar-container {
+            width: 85% !important;
+            max-width: 850px !important;
+            height: 26px !important;
+            background: rgba(2, 10, 6, 0.95) !important;
+            border: 2px solid rgba(34, 197, 94, 0.55) !important;
+            border-radius: 50px !important;
+            padding: 4px !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.9), 0 0 25px rgba(34, 197, 94, 0.3) !important;
+        }
+
+        #progress-bar {
+            width: 0%;
+            height: 100% !important;
+            border-radius: 50px !important;
+            background: linear-gradient(90deg, #16a34a 0%, #4ade80 50%, #facc15 100%) !important;
+            background-size: 200% 100% !important;
+            box-shadow: 0 0 20px rgba(74, 222, 128, 0.95) !important;
+            transition: width 0.25s ease-out !important;
+            animation: brilloBarra 2s linear infinite !important;
+        }
+
+        #progress-text {
+            font-family: 'Cinzel', serif !important;
+            font-size: 2.8rem !important;
+            font-weight: 900 !important;
+            color: #4ade80 !important;
+            margin-top: 22px !important;
+            letter-spacing: 4px !important;
+            text-shadow: 0 0 18px rgba(74, 222, 128, 0.7) !important;
+        }
+
+        .loader-tip {
+            font-family: 'Montserrat', sans-serif !important;
+            font-size: 1.05rem !important;
+            color: rgba(255, 255, 255, 0.75) !important;
+            margin-top: 36px !important;
+            letter-spacing: 1px !important;
+            border-top: 1px solid rgba(34, 197, 94, 0.25) !important;
+            padding-top: 22px !important;
+            width: 80% !important;
+            max-width: 780px !important;
+        }
+
+        /* Botón flotante de estado de audio para Carga y Bienvenida */
+        #btn-control-audio-intro {
+            position: fixed;
+            bottom: 30px;
+            right: 35px;
+            z-index: 1000000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 24px;
+            border-radius: 50px;
+            border: 2px solid #22c55e;
+            background: rgba(4, 18, 11, 0.9);
+            color: #ffffff;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.5);
+            backdrop-filter: blur(6px);
+            transition: all 0.3s ease;
+        }
+
+        #btn-control-audio-intro:hover {
+            transform: scale(1.05);
+            background: rgba(34, 197, 94, 0.25);
+            box-shadow: 0 0 30px rgba(34, 197, 94, 0.85);
+        }
+
         /* =========================================
            ESTILOS PANTALLA DE BIENVENIDA TRANSPARENTE
            ========================================= */
@@ -19,19 +224,12 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            
-            /* Fondo semitransparente oscuro para ver el modelo 3D de fondo */
             background: rgba(4, 14, 9, 0.55); 
             backdrop-filter: blur(5px); 
             -webkit-backdrop-filter: blur(5px);
-            
-            /* Z-index súper alto para estar por encima del 3D e historia */
             z-index: 99998; 
-            
-            /* Inicialmente oculto hasta que termine el loader */
             display: none; 
             opacity: 0;
-            
             flex-direction: column;
             justify-content: center;
             align-items: center;
@@ -43,7 +241,6 @@
             transition: opacity 0.6s ease, visibility 0.6s ease;
         }
 
-        /* 👉 LOGO DE LA PANTALLA SPLASH MÁS GRANDE */
         .bienvenida-escudo {
             width: 220px;
             max-width: 220px;
@@ -118,9 +315,266 @@
             animation: pulso 2s infinite;
         }
 
-        /* El loader debe tapar la bienvenida mientras está activo */
-        #loader-container {
-            z-index: 999999 !important; 
+        /* =========================================================
+           BOTÓN Y VENTANA MODAL DE BIBLIOGRAFÍA Y CRÉDITOS
+           ========================================================= */
+        .btn-bibliografia-ui {
+            border-color: #e0b066 !important;
+            color: #f1cf76 !important;
+        }
+
+        .btn-bibliografia-ui:hover {
+            background: rgba(45, 34, 18, 0.95) !important;
+            border-color: #facc15 !important;
+            color: #ffffff !important;
+            box-shadow: 0 0 18px rgba(224, 176, 102, 0.6) !important;
+            transform: translateY(-2px);
+        }
+
+        #bibliografia-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 95000;
+            background: rgba(5, 10, 14, 0.82);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 25px;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.4s ease, visibility 0.4s ease;
+        }
+
+        #bibliografia-overlay.activa {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        .bibliografia-modal {
+            width: min(1080px, 95vw);
+            max-height: 88vh;
+            background: rgba(16, 20, 24, 0.95);
+            border: 2px solid rgba(224, 176, 102, 0.55);
+            border-radius: 24px;
+            box-shadow: 0 25px 70px rgba(0, 0, 0, 0.95), inset 0 0 30px rgba(224, 176, 102, 0.08);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transform: translateY(20px) scale(0.98);
+            transition: transform 0.4s cubic-bezier(0.22, 0.8, 0.2, 1);
+        }
+
+        #bibliografia-overlay.activa .bibliografia-modal {
+            transform: translateY(0) scale(1);
+        }
+
+        .biblio-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 22px 32px;
+            background: linear-gradient(90deg, rgba(28, 22, 15, 0.95) 0%, rgba(16, 24, 20, 0.95) 100%);
+            border-bottom: 1px solid rgba(224, 176, 102, 0.35);
+        }
+
+        .biblio-header-titulo span {
+            display: block;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #4ade80;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .biblio-header-titulo h2 {
+            font-family: 'Cinzel Decorative', 'Cinzel', serif;
+            font-size: 1.7rem;
+            color: #f1cf76;
+            letter-spacing: 2px;
+            margin: 0;
+        }
+
+        .btn-cerrar-biblio {
+            background: rgba(124, 45, 45, 0.4);
+            border: 1.5px solid rgba(224, 176, 102, 0.5);
+            color: #ffffff;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-cerrar-biblio:hover {
+            background: #b91c1c;
+            border-color: #facc15;
+            transform: rotate(90deg) scale(1.08);
+        }
+
+        .biblio-body {
+            padding: 28px 32px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+            color: #e0dacf;
+        }
+
+        .biblio-body::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .biblio-body::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+        }
+
+        .biblio-body::-webkit-scrollbar-thumb {
+            background: rgba(224, 176, 102, 0.6);
+            border-radius: 8px;
+        }
+
+        .biblio-seccion-titulo {
+            font-family: 'Cinzel', serif;
+            font-size: 1.15rem;
+            color: #e0b066;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            border-left: 4px solid #4ade80;
+            padding-left: 12px;
+            margin-bottom: 16px;
+        }
+
+        .biblio-grid-herramientas {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 16px;
+        }
+
+        .biblio-card-tech {
+            background: rgba(25, 32, 38, 0.78);
+            border: 1px solid rgba(224, 176, 102, 0.3);
+            border-radius: 14px;
+            padding: 16px 18px;
+            transition: transform 0.25s ease, border-color 0.25s ease;
+        }
+
+        .biblio-card-tech:hover {
+            transform: translateY(-3px);
+            border-color: #4ade80;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .biblio-card-tech h4 {
+            font-family: 'Cinzel', serif;
+            font-size: 1rem;
+            color: #facc15;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .biblio-card-tech p {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.82rem;
+            line-height: 1.55;
+            color: rgba(224, 218, 207, 0.9);
+            margin: 0;
+        }
+
+        .biblio-lista {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .biblio-lista li {
+            background: rgba(22, 27, 32, 0.7);
+            border: 1px solid rgba(224, 176, 102, 0.2);
+            border-left: 3px solid #e0b066;
+            border-radius: 10px;
+            padding: 13px 18px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.86rem;
+            line-height: 1.65;
+            color: #e8e2d5;
+        }
+
+        .biblio-lista li strong {
+            color: #f1cf76;
+        }
+
+        .biblio-lista li em {
+            color: #86efac;
+            font-style: italic;
+        }
+
+        .biblio-footer {
+            padding: 16px 32px;
+            background: rgba(10, 14, 17, 0.95);
+            border-top: 1px solid rgba(224, 176, 102, 0.25);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.8rem;
+            color: rgba(224, 218, 207, 0.75);
+        }
+
+        .btn-entendido-biblio {
+            background: #e0b066;
+            color: #111;
+            border: none;
+            padding: 10px 26px;
+            border-radius: 25px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .btn-entendido-biblio:hover {
+            background: #facc15;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(250, 204, 21, 0.4);
+        }
+
+        @keyframes girarAnillo {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes girarAnilloReversa {
+            0% { transform: rotate(360deg); }
+            100% { transform: rotate(0deg); }
+        }
+
+        @keyframes brilloBarra {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+
+        @keyframes pulsoFondo {
+            0%, 100% { transform: scale(1); opacity: 0.7; }
+            50% { transform: scale(1.18); opacity: 1; }
         }
 
         @keyframes pulso {
@@ -134,27 +588,66 @@
             50% { transform: translateY(-8px); }
         }
 
+        /* Adaptación para celulares y pantallas pequeñas */
         @media (max-width: 768px) {
+            .loader-content {
+                width: 95vw !important;
+                min-height: 85vh !important;
+                padding: 30px 20px !important;
+            }
+            .loader-emblema-wrapper { width: 150px; height: 150px; margin-bottom: 20px; }
+            .loader-logo-img { width: 90px; }
+            .loader-brand { font-size: 0.9rem !important; letter-spacing: 3px !important; }
+            .loader-title-plaza { font-size: 2.1rem !important; letter-spacing: 2px !important; }
+            .loader-text { font-size: 1rem !important; margin-bottom: 25px !important; }
+            .progress-bar-container { width: 95% !important; height: 20px !important; }
+            #progress-text { font-size: 2rem !important; }
+            .loader-tip { font-size: 0.85rem !important; width: 95% !important; }
             .bienvenida-escudo { width: 150px; max-width: 150px; margin-bottom: 16px; }
             .bienvenida-sub-top { font-size: 0.85rem; letter-spacing: 3px; }
             .bienvenida-linea-1 { font-size: 1.3rem; letter-spacing: 1.5px; }
             .bienvenida-linea-2 { font-size: 2.2rem; letter-spacing: 2px; }
             .bienvenida-linea-3 { font-size: 1.6rem; letter-spacing: 3px; }
             .instruccion-clic { font-size: 0.8rem; padding: 10px 20px; margin-top: 30px; }
+            #btn-control-audio-intro { bottom: 16px; right: 16px; padding: 8px 15px; font-size: 0.72rem; }
+            .biblio-header { padding: 16px 20px; }
+            .biblio-header-titulo h2 { font-size: 1.2rem; }
+            .biblio-body { padding: 18px 20px; }
+            .biblio-footer { flex-direction: column; gap: 12px; text-align: center; }
         }
     </style>
 </head>
 <body>
 
-    <!-- LOADER (PANTALLA DE CARGA DEL MODELO 3D) -->
+    <!-- AUDIO DE BIENVENIDA (Desde el loader hasta el splash) -->
+    <audio id="audio-bienvenidos" src="audios/bienvenidos.mp3" preload="auto" loop></audio>
+
+    <!-- BOTÓN AUXILIAR DE AUDIO -->
+    <button id="btn-control-audio-intro" type="button" onclick="alternarAudioIntro(event)">
+        🔊 ESCUCHANDO BIENVENIDA
+    </button>
+
+    <!-- LOADER GIGANTE (PANTALLA DE CARGA DEL MODELO 3D) -->
     <div id="loader-container">
         <div class="loader-content">
-            <div class="loader-brand">POTOSÍ - LLALLAGUA - SIGLO XX</div>
-            <div class="loader-text">Cargando Modelo 3D...</div>
+            <div class="loader-emblema-wrapper">
+                <div class="loader-anillo-exterior"></div>
+                <div class="loader-anillo-interior"></div>
+                <img src="imagenes/logo.png" alt="Escudo Llallagua" class="loader-logo-img">
+            </div>
+
+            <div class="loader-brand">POTOSÍ • LLALLAGUA • SIGLO XX</div>
+            <h2 class="loader-title-plaza">PLAZA DEL MINERO</h2>
+            <div class="loader-text">Preparando entorno histórico en 3D...</div>
+
             <div class="progress-bar-container">
                 <div id="progress-bar"></div>
             </div>
             <div id="progress-text">0%</div>
+
+            <div class="loader-tip">
+                💡 Explora los monumentos y presiona la tecla <strong>F</strong> para conocer su historia
+            </div>
         </div>
     </div>
 
@@ -185,6 +678,7 @@
             <button class="btn-fotografias btn-tour-ui" id="btn-iniciar-tour" onclick="window.iniciarTourPlaza && window.iniciarTourPlaza(true)">✈️ RECORRIDO 3D</button>
             <button class="btn-fotografias" onclick="window.location.href='fotografias.html'">FOTOGRAFÍAS</button>
             <button class="action-button" onclick="window.location.href='ubicacion.html'">UBICACIÓN</button>
+            <button class="btn-fotografias btn-bibliografia-ui" id="btn-bibliografia" onclick="abrirBibliografia()">BIBLIOGRAFÍA</button>
             <button class="btn-salir" id="btn-salir">SALIR</button>
         </div>
 
@@ -192,6 +686,109 @@
             <button class="btn-clima activo" id="btn-dia" onclick="cambiarAtmosfera('dia')">☀️ Día</button>
             <button class="btn-clima" id="btn-tarde" onclick="cambiarAtmosfera('tarde')">🌅 Tarde</button>
             <button class="btn-clima" id="btn-nublado" onclick="cambiarAtmosfera('nublado')">🌙 Noche</button>
+        </div>
+    </div>
+
+    <!-- VENTANA MODAL DE BIBLIOGRAFÍA, TECNOLOGÍAS Y FUENTES -->
+    <div id="bibliografia-overlay" onclick="cerrarBibliografiaPorFondo(event)">
+        <div class="bibliografia-modal">
+            <div class="biblio-header">
+                <div class="biblio-header-titulo">
+                    <span>Documentación, Créditos y Referencias</span>
+                    <h2>Bibliografía y Herramientas del Proyecto</h2>
+                </div>
+                <button class="btn-cerrar-biblio" type="button" onclick="cerrarBibliografia()" title="Cerrar ventana">✕</button>
+            </div>
+
+            <div class="biblio-body">
+                <!-- SECCIÓN 1: TECNOLOGÍAS Y SOFTWARE -->
+                <div>
+                    <h3 class="biblio-seccion-titulo">1. Tecnologías de Desarrollo 3D, IA y Audio</h3>
+                    <div class="biblio-grid-herramientas">
+                        <div class="biblio-card-tech">
+                            <h4> Blender</h4>
+                            <p>Modelado arquitectónico 3D de la Plaza del Minero, el edificio del Sindicato Mixto de Trabajadores Mineros de Siglo XX, esculpido, mapeo UV, optimización de texturas y exportación a formato <code>.GLB</code>.</p>
+                        </div>
+                        <div class="biblio-card-tech">
+                            <h4> Tripo AI</h4>
+                            <p>Generación asistida por inteligencia artificial y reconstrucción tridimensional base para algunos modelos y esculturas patrimoniales integradas en la escena.</p>
+                        </div>
+                        <div class="biblio-card-tech">
+                            <h4> Adobe Mixamo</h4>
+                            <p>Rigging esquelético (esqueleto 3D) y animaciones de movimiento corporal (desplazamiento, caminata, carrera y reposo) para los personajes interactivos del recorrido.</p>
+                        </div>
+                        <div class="biblio-card-tech">
+                            <h4> ElevenLabs AI</h4>
+                            <p>Síntesis de voz neuronal por inteligencia artificial para las narraciones históricas de las 8 estaciones de la plaza (<code>01.mp3</code> a <code>08.mp3</code>), el audio de bienvenida y los relatos biográficos de cada monumento.</p>
+                        </div>
+                        <div class="biblio-card-tech">
+                            <h4> Three.js &amp; WebGL</h4>
+                            <p>Motor gráfico web en JavaScript (r108) con soporte para <code>GLTFLoader</code>, <code>OrbitControls</code>, iluminación dinámica por climas y post-procesamiento con <code>EffectComposer</code> y <code>OutlinePass</code>.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 2: FUENTES HISTÓRICAS Y DOCUMENTALES -->
+                <div>
+                    <h3 class="biblio-seccion-titulo">2. Fuentes Bibliográficas y Textos Históricos</h3>
+                    <ul class="biblio-lista">
+                        <li>
+                            <strong>Montoya, Víctor (2022 / 2025).</strong> <em>Crónicas e historia del Sindicato Mixto de Trabajadores Mineros de Siglo XX y las asambleas mineras</em>. Relatos históricos sobre la fundación sindical (1941), Radio "La Voz del Minero", la Masacre de Mayo de 1949 y la Masacre de San Juan (1967).
+                        </li>
+                        <li>
+                            <strong>Montoya, Víctor.</strong> <em>"El Monumento al Minero tiene nombre y apellido"</em>. Publicado en el <em>Semanario Aquí</em>. Investigación biográfica y documental sobre el escultor Víctor Hugo Barrenechea y el perforista <strong>Félix Trujillo Omonte</strong> (modelo real del Monumento al Minero inaugurado el 21 de diciembre de 1954), respaldada con expedientes de <em>Patiño Mines</em> y registros médicos de la Empresa Minera Catavi.
+                        </li>
+                        <li>
+                            <strong>Montoya, Víctor.</strong> <em>"Isaac Camacho: Crónica de un desaparecido"</em>. Investigación histórica sobre la vida, militancia trotskista y resistencia de <strong>César Lora</strong> e <strong>Isaac Camacho</strong> en las minas de Siglo XX.
+                        </li>
+                        <li>
+                            <strong>Claure C., Javier.</strong> <em>"Federico Escóbar; Un caudillo del sindicalismo boliviano"</em>. Compilado en el portal histórico <em>Historias de Bolivia</em>, incluyendo testimonios de Víctor Reinaga y documentos facilitados por María Cruzcaya Escóbar sobre el Control Obrero de Siglo XX.
+                        </li>
+                        <li>
+                            <strong>Oporto Ordóñez, Luis.</strong> <em>"Trayectoria sindical y política de Irineo Pimentel Rojas"</em>. Publicado en el periódico <em>La Época</em> y compilado en <em>Historias de Bolivia</em>, con testimonios de José Pimentel y datos del Archivo Histórico de la Minería Nacional, la UNSXX, el Ministerio de Trabajo y la FSTMB.
+                        </li>
+                        <li>
+                            <strong>Choque Tapia, Paola.</strong> <em>"Palliris de Llallagua, sobrevivencia en medio del olvido"</em>. Investigación periodística desarrollada con el apoyo de la <em>Fundación Para el Periodismo (FPP)</em> y publicada en la <em>Revista Así</em> sobre la realidad laboral e histórica de las mujeres palliris en Siglo XX.
+                        </li>
+                        <li>
+                            <strong>Blanco Mamani, Elías &amp; Lora, Guillermo.</strong> <em>Diccionario Cultural Boliviano</em> y archivos históricos del Partido Obrero Revolucionario (POR) sobre la vida de <strong>Guillermo Lora</strong> (1922–2009), la redacción de la <em>Tesis de Pulacayo</em> (1946) y el movimiento obrero de Llallagua y Uncía.
+                        </li>
+                        <li>
+                            <strong>Wikipedia, La Enciclopedia Libre (2026).</strong> Artículos de consulta sobre el complejo minero de <em>Siglo XX (Llallagua)</em>, <em>Simón I. Patiño (Patiño Mines)</em>, el <em>Decreto Supremo 21060 (Relocalización minera de 1985-1987)</em> y biografías de líderes sindicales bolivianos.
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- SECCIÓN 3: FUENTES FOTOGRÁFICAS Y ARCHIVO VISUAL -->
+                <div>
+                    <h3 class="biblio-seccion-titulo">3. Fuentes Fotográficas, Imágenes y Archivo Visual</h3>
+                    <ul class="biblio-lista">
+                        <li>
+                            <strong>Elaboración Propia y Registro Fotográfico en Campo (2026):</strong> Levantamiento fotográfico actual de la Plaza del Minero en Siglo XX (Llallagua, Potosí), incluyendo el frontis de piedra del sindicato, impactos de bala históricos, áreas verdes, vistas laterales y capturas de renderizado 3D (<code>lateral.jpg</code>, <code>masacre.png</code>, <code>reco.png</code>, <code>MonumentoMinero.jpeg</code>, <code>MonumentoPalliri.jpg</code>, <code>federico.jpg</code>, <code>irineo.jpg</code> y <code>cesar.jpg</code>).
+                        </li>
+                        <li>
+                            <strong>Archivo Fotográfico de la Mina Siglo XX (1940–1946):</strong> Fotografía histórica de la época de explotación industrial del estaño recopilada de <em>Wikimedia Commons / Wikipedia</em> (<code>historia.jpg</code>).
+                        </li>
+                        <li>
+                            <strong>Archivo Documental del Sindicato Mixto de Trabajadores Mineros de Siglo XX:</strong> Fotografías históricas de la sede sindical de piedra, el balcón de arengas, las asambleas multitudinarias y el conflicto de mayo de 1949 divulgadas en los trabajos de <em>Víctor Montoya</em> y <em>Guillermo Lora</em> (<code>ladoantiguo.jpg</code>, <code>antiguofrenteminero.jpg</code>, <code>frenteantigua.jpg</code>).
+                        </li>
+                        <li>
+                            <strong>Archivo Histórico de Pablo Díaz T. (Facebook):</strong> Fotografía histórica real del <em>Monumento al Minero</em> en la Plaza del Minero de Siglo XX (<code>assets/mine.png</code>).
+                        </li>
+                        <li>
+                            <strong>Repositorio Visual de "Historias de Bolivia", FSTMB y Diccionario Cultural Boliviano:</strong> Retratos históricos de archivo de <strong>Federico Escóbar Zapata</strong> (<code>assets/feder.png</code>), <strong>Irineo Pimentel Rojas</strong> (<code>assets/iri.png</code>), <strong>César Lora</strong> (<code>assets/cesarreal.png</code>) y <strong>Guillermo Lora</strong> (<code>assets/giller.png</code>).
+                        </li>
+                        <li>
+                            <strong>Archivo Fotográfico de Víctor Montoya y Paola Choque Tapia:</strong> Retrato histórico de estudio de <strong>Isaac Camacho</strong> (<code>assets/isacreal.png</code>) y fotografía periodística de las mujeres <strong>Palliris</strong> trabajando en los desmontes de Siglo XX (<code>assets/pal.png</code>).
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="biblio-footer">
+                <span> Proyecto de Recorrido Virtual 3D — Plaza del Minero, Siglo XX, Llallagua, Potosí, Bolivia (2026)</span>
+                <button class="btn-entendido-biblio" type="button" onclick="cerrarBibliografia()">CERRAR VENTANA</button>
+            </div>
         </div>
     </div>
 
@@ -257,8 +854,102 @@
     <script src="modelo.js"></script>
 
     <script>
-        // Cierra la bienvenida al hacer clic en cualquier lugar
+        // =====================================================
+        // CONTROL DE LA VENTANA MODAL DE BIBLIOGRAFÍA
+        // =====================================================
+        function abrirBibliografia() {
+            const modal = document.getElementById('bibliografia-overlay');
+            if (modal) {
+                if (document.pointerLockElement) {
+                    document.exitPointerLock();
+                }
+                modal.classList.add('activa');
+            }
+        }
+
+        function cerrarBibliografia() {
+            const modal = document.getElementById('bibliografia-overlay');
+            if (modal) {
+                modal.classList.remove('activa');
+            }
+        }
+
+        function cerrarBibliografiaPorFondo(e) {
+            if (e.target && e.target.id === 'bibliografia-overlay') {
+                cerrarBibliografia();
+            }
+        }
+
+        window.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                cerrarBibliografia();
+            }
+        });
+
+        // =====================================================
+        // CONTROL DE AUDIO DE BIENVENIDA (LOADER -> SPLASH)
+        // =====================================================
+        const audioBienvenidos = document.getElementById('audio-bienvenidos');
+        const btnAudioIntro = document.getElementById('btn-control-audio-intro');
+        let introCerrada = false;
+
+        function actualizarTextoBotonAudio() {
+            if (!btnAudioIntro || !audioBienvenidos) return;
+            if (!audioBienvenidos.paused) {
+                btnAudioIntro.innerHTML = '🔊 DETENER AUDIO BIENVENIDA';
+            } else {
+                btnAudioIntro.innerHTML = '🔇 REPRODUCIR BIENVENIDA';
+            }
+        }
+
+        function iniciarAudioBienvenidos() {
+            if (!audioBienvenidos || introCerrada) return;
+            audioBienvenidos.volume = 0.85;
+            const promesaPlay = audioBienvenidos.play();
+
+            if (promesaPlay !== undefined) {
+                promesaPlay.then(function() {
+                    actualizarTextoBotonAudio();
+                }).catch(function() {
+                    actualizarTextoBotonAudio();
+                });
+            }
+        }
+
+        function detenerAudioBienvenidos() {
+            if (!audioBienvenidos) return;
+            audioBienvenidos.pause();
+            audioBienvenidos.currentTime = 0;
+            if (btnAudioIntro) {
+                btnAudioIntro.style.display = 'none';
+            }
+        }
+
+        function alternarAudioIntro(e) {
+            if (e) e.stopPropagation();
+            if (!audioBienvenidos) return;
+
+            if (audioBienvenidos.paused) {
+                audioBienvenidos.play().then(actualizarTextoBotonAudio).catch(function(){});
+            } else {
+                audioBienvenidos.pause();
+                actualizarTextoBotonAudio();
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', iniciarAudioBienvenidos);
+
+        document.getElementById('loader-container').addEventListener('click', function() {
+            if (audioBienvenidos && audioBienvenidos.paused && !introCerrada) {
+                iniciarAudioBienvenidos();
+            }
+        });
+
+        // Cierra la bienvenida y detiene el audio bienvenidos.mp3
         function ocultarBienvenida() {
+            introCerrada = true;
+            detenerAudioBienvenidos();
+
             var pantalla = document.getElementById('pantalla-bienvenida');
             if (pantalla) {
                 pantalla.style.opacity = '0';
@@ -269,27 +960,30 @@
             }
         }
 
-        // CONTROLADOR DE ACTIVACIÓN:
         // Revisa constantemente hasta que el loader termina o desaparece
         const chequearFinDeCarga = setInterval(function() {
             const loader = document.getElementById('loader-container');
             const pantalla = document.getElementById('pantalla-bienvenida');
 
-            // Si el loader fue removido del DOM o su display/opacity es oculto
             if (!loader || window.getComputedStyle(loader).display === 'none' || window.getComputedStyle(loader).opacity === '0') {
                 if (pantalla && pantalla.style.display !== 'flex') {
                     pantalla.style.display = 'flex';
                     setTimeout(function() {
                         pantalla.style.opacity = '1';
                     }, 50);
+
+                    if (audioBienvenidos && audioBienvenidos.paused && !introCerrada) {
+                        iniciarAudioBienvenidos();
+                    }
                 }
-                clearInterval(chequearFinDeCarga); // Detiene la revisión una vez que aparece
+                clearInterval(chequearFinDeCarga);
             }
         }, 150);
 
         // Evento para el botón Salir
         document.addEventListener("click", function(e) {
             if (e.target.closest("#btn-salir")) {
+                detenerAudioBienvenidos();
                 sessionStorage.removeItem("historiaCompletada");
                 window.location.href = "index.html?inicio=" + Date.now();
             }
