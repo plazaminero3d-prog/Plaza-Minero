@@ -1,7 +1,14 @@
+// ====================================================
+// MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
+// VERSIÓN EXTREMA FLUIDEZ + PUNTOS DE VIDEOS INFORMATIVOS (ESTÉTICA VERDE SPLASH)
+// + BOTÓN Y TECLA (G) PARA SIRENA SINDICAL (sirena.mp3) + PERSONAJE SIN SOMBRA
+// ====================================================
+
 var scene, camera, renderer, plaza, controles, sound;
 var ambientLight, hemisphereLight, directionalLight, directionalLight2;
 var lucesPostes = [];
 var bulbosPostes = [];
+var objetosDetalleLejano = [];
 var clock = new THREE.Clock();
 
 var maxAnisotropy = 1;
@@ -14,6 +21,7 @@ var seleccionPersonajeActiva = false;
 var personajeYaElegido = false;
 var tipoPersonajeActual = 'minero'; // 'minero' o 'minera'
 var selectorPersonajeModalEl = null;
+var visoresPreviewInicializados = false;
 
 // Escenas dedicadas para previsualizar el Minero y la Minera
 var previewScenes = { minero: null, minera: null };
@@ -29,8 +37,128 @@ var MODELOS_PERSONAJES = {
 };
 
 // ====================================================
+// 🎬 CONFIGURACIÓN DE LOS 4 PUNTOS DE VIDEOS INFORMATIVOS CORREGIDOS
+// ====================================================
+window.ESTACIONES_VIDEOS = [
+    {
+        numero: "01",
+        titulo: "El Sindicato Mixto de Trabajadores Mineros y Radio 'La Voz del Minero'",
+        subtitulo: "BALUARTE SINDICAL Y COMUNICACIÓN REVOLUCIONARIA EN SIGLO XX",
+        descripcion: "Historia del edificio del Sindicato Mixto de Trabajadores Mineros de Siglo XX (fundado en 1941) y la emblemática emisora Radio 'La Voz del Minero', trinchera ideológica y de resistencia obrera.",
+        fuente: "Proyecto FRK (@proyecto_frk). Documental corto sobre el Sindicato de Siglo XX y Radio La Voz del Minero (TikTok).",
+        urlOriginal: "https://www.tiktok.com/@proyecto_frk/video/7451396319442210053?_r=1&_t=ZS-9BN5YoyTpmE",
+        rutas: ["videos/video1.mp4", "audios/video1.mp4", "assets/video1.mp4", "audios/video1.mp3", "videos/video1.mp3"],
+        zona: new THREE.Vector3(-65,15, 100),
+        visitado: false
+    },
+    {
+        numero: "02",
+        titulo: "La Masacre de San Juan (24 de Junio de 1967)",
+        subtitulo: "MEMORIA DE LA NOCHE MÁS FRÍA Y SANGRIENTA EN LOS CAMPAMENTOS MINEROS",
+        descripcion: "Relato documental y testimonios históricos sobre la intervención militar de la madrugada del 24 de junio de 1967 en Siglo XX, Catavi y Llallagua durante la dictadura de René Barrientos Ortuño, donde cayó acribillado el dirigente Rosendo García Maisman en defensa del sindicato y la radio.",
+        fuente: "RED MULTIMEDIA (2020). 'Masacre de San Juan Llallagua Catavi Uncía Siglo XX' (YouTube).",
+        urlOriginal: "http://www.youtube.com/watch?v=EraoyZ7d_ao",
+        rutas: ["videos/video2.mp4", "audios/video2.mp4", "assets/video2.mp4", "audios/video2.mp3", "videos/video2.mp3"],
+        zona: new THREE.Vector3(-44, 7.5, -20),
+        visitado: false
+    },
+    {
+        numero: "03",
+        titulo: "La Relocalización Minera y la Histórica 'Marcha por la Vida'",
+        subtitulo: "EL DECRETO SUPREMO 21060 (1985) Y LA DEFENSA DE LAS FUENTES DE TRABAJO",
+        descripcion: "Registro histórico del cierre de operaciones tras el Decreto Supremo 21060, el despido masivo de miles de trabajadores del subsuelo ('relocalización') y la multitudinaria 'Marcha por la Vida y la Paz' de 1986 protagonizada por los mineros y sus familias.",
+        fuente: "Yo Soy Llallagua 360 (@yo_soy_llallagua360). Crónica audiovisual sobre la Relocalización y la Marcha por la Vida (TikTok).",
+        urlOriginal: "https://www.tiktok.com/@yo_soy_llallagua360/video/7677646877482929428?_r=1&_t=ZS-9BN83EH72oC",
+        rutas: ["videos/video3.mp4", "audios/video3.mp4", "assets/video3.mp4", "audios/video3.mp3", "videos/video3.mp3"],
+        zona: new THREE.Vector3(-55, 7.5, -68),
+        visitado: false
+    },
+    {
+        numero: "04",
+        titulo: "Creación de la Universidad Nacional 'Siglo XX' (UNSXX) por los Mineros",
+        subtitulo: "LEGADO EDUCATIVO OBRERO ANTE LA CRISIS Y LA RELOCALIZACIÓN (1985)",
+        descripcion: "Historia de cómo los trabajadores mineros de Siglo XX proyectaron y fundaron la Universidad Nacional 'Siglo XX' (reconocida por D.S. 20979 en 1985) aportando de sus propios salarios para garantizar la educación superior de sus hijos y dar vida al municipio tras la relocalización.",
+        fuente: "Archivo Histórico / @luuuuu884. Historia de la creación de la Universidad Nacional 'Siglo XX' por los mineros (TikTok).",
+        urlOriginal: "https://www.tiktok.com/@luuuuu884/video/7515766413747866886?_r=1&_t=ZS-9BN7jyHB9ey",
+        rutas: ["videos/video4.mp4", "audios/video4.mp4", "assets/video4.mp4", "audios/video4.mp3", "videos/video4.mp3"],
+        zona: new THREE.Vector3(-63, 7.5, -126),
+        visitado: false
+    }
+];
+
+var videoRingsGroup = new THREE.Group();
+var videoRings = [];
+var videoModalActivo = false;
+var videoModalOverlayEl = null;
+var videoPlayerEl = null;
+var videoIndiceActual = 0;
+
+// ====================================================
+// 🚨 MOTOR DE LA SIRENA SINDICAL (sirena.mp3) - BOTÓN Y TECLA G
+// ====================================================
+var audioSirenaEl = null;
+var sirenaActiva = false;
+var rutasSirena = ["audios/sirena.mp3", "assets/sirena.mp3", "sirena.mp3"];
+var indiceRutaSirena = 0;
+
+function prepararAudioSirena() {
+    if (audioSirenaEl) return;
+    audioSirenaEl = new Audio(rutasSirena[0]);
+    audioSirenaEl.loop = true;
+    audioSirenaEl.preload = 'auto';
+    audioSirenaEl.volume = 1;
+
+    audioSirenaEl.addEventListener('error', function() {
+        indiceRutaSirena++;
+        if (indiceRutaSirena < rutasSirena.length) {
+            audioSirenaEl.src = rutasSirena[indiceRutaSirena];
+        }
+    });
+}
+
+prepararAudioSirena();
+
+function actualizarBotonSirenaUI() {
+    var btnSirena = document.getElementById('btn-sirena');
+    if (!btnSirena) return;
+    if (sirenaActiva) {
+        btnSirena.innerHTML = '🚨 SIRENA: ON (G)';
+        btnSirena.style.background = 'rgba(220, 38, 38, 0.88)';
+        btnSirena.style.borderColor = '#facc15';
+        btnSirena.style.color = '#ffffff';
+        btnSirena.style.boxShadow = '0 0 18px rgba(239, 68, 68, 0.9)';
+    } else {
+        btnSirena.innerHTML = '🚨 Sirena (G)';
+        btnSirena.style.background = 'rgba(30, 25, 20, 0.65)';
+        btnSirena.style.borderColor = 'rgba(239, 68, 68, 0.55)';
+        btnSirena.style.color = '#fca5a5';
+        btnSirena.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4)';
+    }
+}
+
+window.alternarSirena = function(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    prepararAudioSirena();
+
+    if (!sirenaActiva) {
+        sirenaActiva = true;
+        audioSirenaEl.volume = 0.9;
+        var prom = audioSirenaEl.play();
+        if (prom !== undefined) {
+            prom.catch(function(err) {
+                console.warn("No se pudo reproducir sirena.mp3:", err);
+            });
+        }
+    } else {
+        sirenaActiva = false;
+        audioSirenaEl.pause();
+        audioSirenaEl.currentTime = 0;
+    }
+    actualizarBotonSirenaUI();
+};
+
+// ====================================================
 // MOTOR DE AUDIO MP3 FUERTE (audios/pasos.mp3 y audios/viento.mp3)
-// + Respaldo procedural de alto volumen
 // ====================================================
 var audioVientoEl = null;
 var audioPasosEl = null;
@@ -72,7 +200,7 @@ prepararElementosAudioMP3();
 function inicializarAudioProcedural() {
     prepararElementosAudioMP3();
 
-    if (vientoMp3Disponible && audioVientoEl && audioVientoEl.paused && !monumentoModalActivo) {
+    if (vientoMp3Disponible && audioVientoEl && audioVientoEl.paused && !monumentoModalActivo && !videoModalActivo) {
         var playPromise = audioVientoEl.play();
         if (playPromise !== undefined) {
             playPromise.then(function() {
@@ -127,8 +255,8 @@ function iniciarSonidoVientoYArboles() {
 
 function modularVientoAmbiental(elapsedTime) {
     if (vientoMp3Disponible && audioVientoEl) {
-        if (monumentoModalActivo || seleccionPersonajeActiva) {
-            audioVientoEl.volume = 0.15;
+        if (monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) {
+            audioVientoEl.volume = 0.12;
         } else {
             var rachaMp3 = Math.sin(elapsedTime * 0.5) * 0.12 + Math.cos(elapsedTime * 0.9) * 0.08;
             audioVientoEl.volume = Math.max(0.45, Math.min(0.88, 0.68 + rachaMp3));
@@ -137,7 +265,7 @@ function modularVientoAmbiental(elapsedTime) {
     }
 
     if (!sfxCtx || !sfxVientoFilter || !sfxVientoGain) return;
-    if (monumentoModalActivo || seleccionPersonajeActiva) {
+    if (monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) {
         sfxVientoGain.gain.value = 0.02;
         return;
     }
@@ -147,7 +275,7 @@ function modularVientoAmbiental(elapsedTime) {
 }
 
 function actualizarSonidoPasosJugador(isWalking, isRunning, delta) {
-    var puedeSonar = isWalking && !tourActivo && !window.historiaEnCurso && !monumentoModalActivo && !seleccionPersonajeActiva;
+    var puedeSonar = isWalking && !tourActivo && !window.historiaEnCurso && !monumentoModalActivo && !seleccionPersonajeActiva && !videoModalActivo;
 
     if (pasosMp3Disponible && audioPasosEl) {
         if (puedeSonar) {
@@ -257,7 +385,7 @@ var CONFIG_PLAYER = {
     pitchMin: -0.20,
     pitchMax: 6,
 
-    tourDuration: 22.0,
+    tourDuration: 20.0,
 
     moveSpeed: 18.0,
     runSpeed: 30.0,
@@ -298,6 +426,8 @@ var tourCurves = null;
 var tourOverlayEl = null;
 var tourBarEl = null;
 var tourLabelEl = null;
+var _ultimoPorcentajeTour = -1;
+var _ultimoTextoTour = "";
 
 // Listas de colisión física optimizadas
 var floorMeshes = [];
@@ -353,7 +483,150 @@ var marcadores = [
 ];
 
 // ====================================================
-// CARGADOR INTELIGENTE DE GLB (SOPORTA MAYÚSCULAS/MINÚSCULAS EN GITHUB PAGES)
+// 🎬 VENTANA MODAL REPRODUCTORA DE VIDEOS (MISMO VERDE ESMERALDA Y DORADO DEL SPLASH)
+// ====================================================
+function crearModalVideoInformativo() {
+    if (videoModalOverlayEl) return;
+
+    videoModalOverlayEl = document.createElement('div');
+    videoModalOverlayEl.id = 'video-informativo-overlay';
+    videoModalOverlayEl.style.cssText =
+        'position:fixed; inset:0; width:100vw; height:100vh; background:rgba(4, 14, 9, 0.84); ' +
+        'backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); z-index:97500; display:none; ' +
+        'justify-content:center; align-items:center; padding:20px; font-family:Montserrat,sans-serif; user-select:none;';
+
+    videoModalOverlayEl.innerHTML =
+        '<div style="background:rgba(6, 20, 13, 0.95); border:2.5px solid #22c55e; border-radius:28px; width:min(900px, 95vw); max-height:92vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 80px rgba(0,0,0,0.95), 0 0 38px rgba(34,197,94,0.45), inset 0 0 40px rgba(34,197,94,0.12);">' +
+            
+            // CABECERA VERDE ESMERALDA + DORADO
+            '<div style="display:flex; justify-content:space-between; align-items:center; padding:18px 28px; background:linear-gradient(90deg, rgba(10,34,22,0.98) 0%, rgba(4,16,10,0.98) 100%); border-bottom:1.5px solid rgba(34,197,94,0.45);">' +
+                '<div>' +
+                    '<span id="video-modal-badge" style="color:#facc15; font-size:0.78rem; font-weight:800; letter-spacing:3.5px; text-transform:uppercase; display:block; text-shadow:0 0 10px rgba(250,204,21,0.5);">🎬 DOCUMENTAL HISTÓRICO • ESTACIÓN DE VIDEO</span>' +
+                    '<h3 id="video-modal-titulo" style="font-family:\'Cinzel Decorative\',Cinzel,serif; background:linear-gradient(180deg, #ffffff 0%, #4ade80 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-size:clamp(1.15rem, 2vw, 1.55rem); font-weight:900; margin:5px 0 2px 0; letter-spacing:1.5px;">Video Informativo</h3>' +
+                    '<div id="video-modal-subtitulo" style="color:#86efac; font-size:0.74rem; font-weight:700; letter-spacing:1.8px; text-transform:uppercase;"></div>' +
+                '</div>' +
+                '<button type="button" id="btn-cerrar-video-x" title="Cerrar video" style="background:rgba(34,197,94,0.18); border:2px solid #22c55e; color:#ffffff; width:42px; height:42px; border-radius:50%; font-size:1.15rem; font-weight:bold; cursor:pointer; box-shadow:0 0 15px rgba(34,197,94,0.4); transition:all 0.25s ease;">✕</button>' +
+            '</div>' +
+
+            // CUERPO CON MARCO VERDE BRILLANTE PARA EL VIDEO
+            '<div style="padding:20px 28px; display:flex; flex-direction:column; gap:14px; overflow-y:auto;">' +
+                '<div style="width:100%; background:#020805; border-radius:18px; border:2.5px solid #22c55e; padding:5px; box-sizing:border-box; overflow:hidden; position:relative; min-height:260px; max-height:52vh; display:flex; align-items:center; justify-content:center; box-shadow:0 0 28px rgba(34,197,94,0.38), inset 0 0 18px rgba(34,197,94,0.2);">' +
+                    '<video id="reproductor-video-punto" controls playsinline style="width:100%; max-height:49vh; border-radius:12px; display:block; background:#000;"></video>' +
+                '</div>' +
+
+                '<p id="video-modal-desc" style="color:#d1fae5; font-size:0.9rem; line-height:1.6; margin:0; text-align:justify;"></p>' +
+
+                // CAJA DE BIBLIOGRAFÍA Y ENLACE ORIGINAL DEL VIDEO ABAJITO
+                '<div style="background:rgba(4,16,10,0.92); border:1.5px solid rgba(34,197,94,0.45); border-left:4px solid #facc15; border-radius:12px; padding:12px 16px; display:flex; flex-direction:column; gap:6px;">' +
+                    '<div id="video-modal-fuente" style="color:#f1cf76; font-size:0.8rem; font-weight:700;">📚 Fuente bibliográfica:</div>' +
+                    '<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">' +
+                        '<a id="video-modal-link" href="#" target="_blank" rel="noopener noreferrer" style="color:#4ade80; font-size:0.78rem; font-weight:700; text-decoration:underline; word-break:break-all;">🔗 Ver publicación original</a>' +
+                        '<span id="video-modal-estado" style="color:#86efac; font-size:0.74rem; font-weight:600;">▶️ Reproduciendo...</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+
+            // PIE DEL MODAL CON BOTÓN VERDE ESTILO SPLASH
+            '<div style="padding:14px 28px; background:rgba(3,12,7,0.96); border-top:1.5px solid rgba(34,197,94,0.35); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">' +
+                '<span style="color:rgba(209,250,229,0.75); font-size:0.76rem; font-weight:600;">💡 Presiona <b style="color:#4ade80;">ESC</b> o <b style="color:#4ade80;">V</b> para volver al recorrido</span>' +
+                '<button type="button" id="btn-cerrar-video-ok" style="background:linear-gradient(90deg, #16a34a 0%, #22c55e 50%, #4ade80 100%); color:#031109; border:2px solid #86efac; padding:11px 28px; border-radius:50px; font-family:Montserrat,sans-serif; font-size:0.82rem; font-weight:800; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase; box-shadow:0 0 22px rgba(34,197,94,0.6);">CONTINUAR RECORRIDO →</button>' +
+            '</div>' +
+        '</div>';
+
+    document.body.appendChild(videoModalOverlayEl);
+    videoPlayerEl = document.getElementById('reproductor-video-punto');
+
+    document.getElementById('btn-cerrar-video-x').onclick = function() { window.cerrarVideoPunto(); };
+    document.getElementById('btn-cerrar-video-ok').onclick = function() { window.cerrarVideoPunto(); };
+    videoModalOverlayEl.addEventListener('click', function(e) {
+        if (e.target === videoModalOverlayEl) window.cerrarVideoPunto();
+    });
+}
+
+window.abrirVideoPunto = function(indice) {
+    if (!window.ESTACIONES_VIDEOS || !window.ESTACIONES_VIDEOS[indice]) return;
+    crearModalVideoInformativo();
+
+    var estVid = window.ESTACIONES_VIDEOS[indice];
+    videoIndiceActual = indice;
+    videoModalActivo = true;
+    estVid.visitado = true;
+
+    detenerSonidoPasos();
+    keys = {};
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+
+    var ringObj = videoRings[indice];
+    if (ringObj) {
+        ringObj.ring.material.color.setHex(0xfacc15);
+        ringObj.beam.material.color.setHex(0xfacc15);
+        if (ringObj.labelDiv) {
+            ringObj.labelDiv.style.background = 'rgba(22,163,74,0.96)';
+            ringObj.labelDiv.style.borderColor = '#facc15';
+            ringObj.labelDiv.style.color = '#ffffff';
+            ringObj.labelDiv.innerText = '✔ Video ' + estVid.numero + ': ' + estVid.titulo;
+        }
+    }
+
+    document.getElementById('video-modal-badge').innerText = '🎬 DOCUMENTAL HISTÓRICO • VIDEO ' + estVid.numero + ' DE 04';
+    document.getElementById('video-modal-titulo').innerText = estVid.titulo;
+    document.getElementById('video-modal-subtitulo').innerText = estVid.subtitulo || '';
+    document.getElementById('video-modal-desc').innerText = estVid.descripcion;
+    document.getElementById('video-modal-fuente').innerHTML = '📚 <b>Bibliografía del video:</b> ' + (estVid.fuente || '');
+
+    var linkEl = document.getElementById('video-modal-link');
+    if (linkEl && estVid.urlOriginal) {
+        linkEl.href = estVid.urlOriginal;
+        linkEl.innerText = '🔗 Fuente original: ' + estVid.urlOriginal;
+    }
+
+    var estadoEl = document.getElementById('video-modal-estado');
+    videoModalOverlayEl.style.display = 'flex';
+
+    var idxRuta = 0;
+    function probarSiguienteRutaVideo() {
+        if (!videoPlayerEl) return;
+        if (idxRuta >= estVid.rutas.length) {
+            if (estadoEl) {
+                estadoEl.innerHTML = '📁 Sube <b>' + estVid.rutas[0] + '</b> (o <b>' + estVid.rutas[3] + '</b>) o abre el enlace original.';
+            }
+            return;
+        }
+        var rutaActual = estVid.rutas[idxRuta++];
+        videoPlayerEl.src = rutaActual;
+        if (estadoEl) estadoEl.innerText = '▶️ Archivo local: ' + rutaActual;
+        var p = videoPlayerEl.play();
+        if (p !== undefined) {
+            p.catch(function() {});
+        }
+    }
+
+    if (videoPlayerEl) {
+        videoPlayerEl.onerror = function() {
+            probarSiguienteRutaVideo();
+        };
+        probarSiguienteRutaVideo();
+    }
+};
+
+window.cerrarVideoPunto = function() {
+    if (!videoModalActivo) return;
+    videoModalActivo = false;
+    if (videoPlayerEl) {
+        videoPlayerEl.pause();
+        videoPlayerEl.removeAttribute('src');
+        videoPlayerEl.load();
+    }
+    if (videoModalOverlayEl) {
+        videoModalOverlayEl.style.display = 'none';
+    }
+    clock.getDelta();
+};
+
+// ====================================================
+// CARGADOR INTELIGENTE DE GLB
 // ====================================================
 function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
     var rutas = Array.isArray(listaRutas) ? listaRutas : [listaRutas];
@@ -378,11 +651,13 @@ function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
 
 function congelarObjetoEstatico(objeto) {
     if (!objeto) return;
+    objeto.updateMatrix();
     objeto.updateMatrixWorld(true);
+    objeto.matrixAutoUpdate = false;
     objeto.traverse(function(c) {
         if (c && !c.isSkinnedMesh && !c.isBone && c.type !== 'Bone') {
-            c.matrixAutoUpdate = false;
             c.updateMatrix();
+            c.matrixAutoUpdate = false;
             if (c.isMesh && c.geometry) {
                 if (!c.geometry.boundingSphere) c.geometry.computeBoundingSphere();
                 if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
@@ -391,9 +666,6 @@ function congelarObjetoEstatico(objeto) {
     });
 }
 
-// ====================================================
-// CÁLCULO SEGURO DE LÍMITES (SIN LLAMAR A SKELETON.UPDATE QUE ROMPE r108)
-// ====================================================
 function calcularLimitesSeguros(objeto) {
     objeto.updateMatrixWorld(true);
 
@@ -451,7 +723,7 @@ function calcularLimitesSeguros(objeto) {
 }
 
 // ====================================================
-// VISORES 3D DE SELECCIÓN USANDO UN SOLO RENDERER COMPARTIDO
+// VISORES 3D DE SELECCIÓN
 // ====================================================
 var _offscreenPreviewRenderer = null;
 
@@ -470,8 +742,8 @@ function inicializarVisorPreview3D(tipo, canvasId) {
     var canvas = document.getElementById(canvasId);
     if (!canvas) return;
 
-    var w = 320;
-    var h = 280;
+    var w = 300;
+    var h = 260;
     canvas.width = w;
     canvas.height = h;
     previewCanvasCtx[tipo] = canvas.getContext('2d');
@@ -563,7 +835,7 @@ function inicializarVisorPreview3D(tipo, canvasId) {
 function renderizarVisoresPreviewPersonajes(delta, elapsedTime) {
     if (!seleccionPersonajeActiva) return;
     var anguloFrontalSuave = Math.sin(elapsedTime * 1.4) * 0.25;
-    var sharedRenderer = obtenerRendererPreviewCompartido(320, 280);
+    var sharedRenderer = obtenerRendererPreviewCompartido(300, 260);
 
     ['minero', 'minera'].forEach(function(tipo) {
         var s = previewScenes[tipo];
@@ -586,9 +858,6 @@ function renderizarVisoresPreviewPersonajes(delta, elapsedTime) {
     });
 }
 
-// ====================================================
-// VENTANA MODAL ADAPTADA Y CENTRADA SIN CORTAR BOTONES NI PERSONAJES
-// ====================================================
 function crearModalSeleccionPersonaje() {
     var viejoModal = document.getElementById('modal-seleccion-personaje');
     if (viejoModal) viejoModal.remove();
@@ -596,9 +865,9 @@ function crearModalSeleccionPersonaje() {
     selectorPersonajeModalEl = document.createElement('div');
     selectorPersonajeModalEl.id = 'modal-seleccion-personaje';
     selectorPersonajeModalEl.style.cssText =
-        'position:fixed; inset:0; width:100vw; height:100vh; background:rgba(4,12,8,0.86); ' +
+        'position:fixed; inset:0; width:100vw; height:100vh; background:rgba(4,12,8,0.88); ' +
         'z-index:98000; display:none; justify-content:center; align-items:center; padding:14px; user-select:none; ' +
-        'font-family:Montserrat,sans-serif; opacity:0; transition:opacity 0.3s ease;';
+        'font-family:Montserrat,sans-serif; opacity:0; transition:opacity 0.25s ease;';
 
     selectorPersonajeModalEl.innerHTML =
         '<div style="background:rgba(14,20,24,0.97); border:2px solid #e0b066; border-radius:24px; padding:20px 28px; max-width:960px; width:95vw; max-height:94vh; display:flex; flex-direction:column; justify-content:center; text-align:center; box-shadow:0 20px 55px rgba(0,0,0,0.92);">' +
@@ -608,20 +877,18 @@ function crearModalSeleccionPersonaje() {
             
             '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(310px, 1fr)); gap:22px; margin-bottom:8px; align-items:stretch;">' +
                 
-                // TARJETA 1: MINERO
                 '<div id="card-elegir-minero" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(224,176,102,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.2s ease; display:flex; flex-direction:column; align-items:center;">' +
                     '<div style="width:100%; height:clamp(240px, 38vh, 300px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(250,204,21,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(250,204,21,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden;">' +
-                        '<canvas id="preview-canvas-minero" style="width:100%; height:100%; max-width:320px; max-height:280px; object-fit:contain; display:block;"></canvas>' +
+                        '<canvas id="preview-canvas-minero" style="width:100%; height:100%; max-width:300px; max-height:260px; object-fit:contain; display:block;"></canvas>' +
                     '</div>' +
                     '<h3 style="font-family:Cinzel,serif; color:#fde047; font-size:1.28rem; margin:0 0 4px 0; letter-spacing:1.5px;">MINERO</h3>' +
                     '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Trabajador del subsuelo de Siglo XX con guardatojo y equipo tradicional.</p>' +
                     '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #e0b066, #facc15); color:#0a0f0d; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase;">ELEGIR MINERO</button>' +
                 '</div>' +
 
-                // TARJETA 2: MINERA
                 '<div id="card-elegir-minera" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(74,222,128,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.2s ease; display:flex; flex-direction:column; align-items:center;">' +
                     '<div style="width:100%; height:clamp(240px, 38vh, 300px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(74,222,128,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(74,222,128,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden;">' +
-                        '<canvas id="preview-canvas-minera" style="width:100%; height:100%; max-width:320px; max-height:280px; object-fit:contain; display:block;"></canvas>' +
+                        '<canvas id="preview-canvas-minera" style="width:100%; height:100%; max-width:300px; max-height:260px; object-fit:contain; display:block;"></canvas>' +
                     '</div>' +
                     '<h3 style="font-family:Cinzel,serif; color:#86efac; font-size:1.28rem; margin:0 0 4px 0; letter-spacing:1.5px;">MINERA</h3>' +
                     '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Mujer minera y valiente Palliri, símbolo de lucha e historia en Llallagua.</p>' +
@@ -633,9 +900,6 @@ function crearModalSeleccionPersonaje() {
         '</div>';
 
     document.body.appendChild(selectorPersonajeModalEl);
-
-    inicializarVisorPreview3D('minero', 'preview-canvas-minero');
-    inicializarVisorPreview3D('minera', 'preview-canvas-minera');
 
     var cardMinero = document.getElementById('card-elegir-minero');
     var cardMinera = document.getElementById('card-elegir-minera');
@@ -670,6 +934,12 @@ window.mostrarSelectorPersonaje = function() {
     if (!selectorPersonajeModalEl) {
         crearModalSeleccionPersonaje();
     }
+    if (!visoresPreviewInicializados) {
+        visoresPreviewInicializados = true;
+        inicializarVisorPreview3D('minero', 'preview-canvas-minero');
+        inicializarVisorPreview3D('minera', 'preview-canvas-minera');
+    }
+
     keys = {};
     detenerSonidoPasos();
     if (document.pointerLockElement) {
@@ -698,7 +968,7 @@ window.seleccionarPersonaje = function(tipo) {
         selectorPersonajeModalEl.style.opacity = '0';
         setTimeout(function() {
             if (selectorPersonajeModalEl) selectorPersonajeModalEl.style.display = 'none';
-        }, 280);
+        }, 250);
     }
 
     characterGroup.visible = true;
@@ -906,6 +1176,7 @@ function aplicarGltfAlPersonaje(gltf, tipo) {
         player.position.z
     );
     characterGroup.rotation.y = characterFacingYaw + CONFIG_PLAYER.characterYawOffset;
+    characterGroup.updateMatrixWorld(true);
 }
 
 function cargarModeloPersonaje(tipo, onComplete) {
@@ -1088,12 +1359,10 @@ function mejorarCalidadMaterial(material) {
             m.map.anisotropy = maxAnisotropy;
         }
         m.shadowSide = null;
+        m.precision = "mediump";
     }
 }
 
-// ====================================================
-// REGISTRO SEGURO DE COLISIONES + ESFERAS DE PROXIMIDAD PARA FLUIDEZ
-// ====================================================
 function prepararEsferaColisionMundial(mesh) {
     if (!mesh || !mesh.geometry) return;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
@@ -1184,6 +1453,9 @@ window.iniciarTourPlaza = function(mostrarUI) {
     if (window.historiaEnCurso && typeof window.cerrarVentanaHistoria === 'function') {
         window.cerrarVentanaHistoria();
     }
+    if (videoModalActivo) {
+        window.cerrarVideoPunto();
+    }
     if (document.pointerLockElement) {
         document.exitPointerLock();
     }
@@ -1195,11 +1467,18 @@ window.iniciarTourPlaza = function(mostrarUI) {
     tourCurves = construirCurvasTourPlaza();
     tourElapsed = 0;
     tourActivo = true;
+    _ultimoPorcentajeTour = -1;
+    _ultimoTextoTour = "";
+
+    if (renderer) {
+        renderer.setPixelRatio(0.85);
+    }
 
     characterGroup.visible = personajeYaElegido;
 
     camera.position.copy(tourCurves.positions.getPoint(0));
     camera.lookAt(tourCurves.looks.getPoint(0));
+    camera.updateMatrixWorld(true);
 
     if (tourOverlayEl) tourOverlayEl.style.display = mostrarUI ? 'flex' : 'none';
     if (hudGuiaEl) hudGuiaEl.style.opacity = '0';
@@ -1209,7 +1488,13 @@ window.iniciarTourPlaza = function(mostrarUI) {
 window.terminarTourPlaza = function(omitirSelector) {
     tourActivo = false;
     if (tourOverlayEl) tourOverlayEl.style.display = 'none';
+
+    if (renderer) {
+        renderer.setPixelRatio(1.0);
+    }
+
     placeCharacterAndCamera(clock.getElapsedTime());
+    camera.updateMatrixWorld(true);
 
     if (renderer && scene && camera) {
         renderer.render(scene, camera);
@@ -1225,7 +1510,7 @@ window.terminarTourPlaza = function(omitirSelector) {
 };
 
 // ====================================================
-// 1. MINIMAPA / RADAR 2D INTERACTIVO
+// 1. MINIMAPA / RADAR 2D INTERACTIVO (INCLUYE PUNTOS DE VIDEO VERDE ESMERALDA)
 // ====================================================
 function mundoARadar(wx, wz, cx, cy) {
     var dx = wx - player.position.x;
@@ -1266,7 +1551,7 @@ function crearMinimapaRadar() {
     minimapContainerEl = document.createElement('div');
     minimapContainerEl.id = 'minimapa-radar-container';
     minimapContainerEl.style.cssText =
-        'position:fixed; bottom:78px; left:30px; width:185px; background:rgba(10,16,20,0.92); ' +
+        'position:fixed; bottom:78px; left:30px; width:195px; background:rgba(10,16,20,0.92); ' +
         'border:1.5px solid rgba(224,176,102,0.55); border-radius:18px; ' +
         'padding:10px; z-index:650; box-shadow:0 8px 24px rgba(0,0,0,0.7); pointer-events:auto; ' +
         'font-family:Montserrat,sans-serif; color:#e0dacf; user-select:none;';
@@ -1284,17 +1569,18 @@ function crearMinimapaRadar() {
     minimapCtx = minimapCanvas.getContext('2d');
 
     var leyenda = document.createElement('div');
-    leyenda.style.cssText = 'display:flex; justify-content:space-around; font-size:0.62rem; margin-top:7px; color:#cbd5e1; font-weight:600;';
+    leyenda.style.cssText = 'display:flex; justify-content:space-around; font-size:0.58rem; margin-top:7px; color:#cbd5e1; font-weight:600;';
     leyenda.innerHTML =
         '<span><b style="color:#38bdf8;">▲</b> Tú</span>' +
         '<span><b style="color:#f97316;">◆</b> Monum.</span>' +
-        '<span><b style="color:#facc15;">●</b> Historia</span>';
+        '<span><b style="color:#facc15;">●</b> Hist.</span>' +
+        '<span><b style="color:#22c55e;">■</b> Video</span>';
     minimapContainerEl.appendChild(leyenda);
 
     document.body.appendChild(minimapContainerEl);
 
     minimapCanvas.addEventListener('click', function(e) {
-        if (tourActivo || window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva) return;
+        if (tourActivo || window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) return;
 
         var rect = minimapCanvas.getBoundingClientRect();
         var clickX = e.clientX - rect.left;
@@ -1321,7 +1607,7 @@ function crearMinimapaRadar() {
             var offsetDist = (mejorMonumento.enlace === 'minero.html') ? 16.0 : 8.5;
             var destX = mejorMonumento.pisoPos.x + offsetDist;
             var destZ = mejorMonumento.pisoPos.z;
-            var destY = getFloorHeightBelow(destX, destZ, mejorMonumento.pisoPos.y);
+            var destY = getFloorHeightBelow(destX, destZ, mejorMonumento.pisoPos.y, null, true);
 
             player.position.set(destX, destY, destZ);
             player.velocity.set(0, 0, 0);
@@ -1332,12 +1618,25 @@ function crearMinimapaRadar() {
             return;
         }
 
+        if (window.ESTACIONES_VIDEOS) {
+            for (var v = 0; v < window.ESTACIONES_VIDEOS.length; v++) {
+                var ev = window.ESTACIONES_VIDEOS[v];
+                if (Math.hypot(ev.zona.x - worldX, ev.zona.z - worldZ) < 14.0) {
+                    var vy = getFloorHeightBelow(ev.zona.x + 4.0, ev.zona.z, ev.zona.y, null, true);
+                    player.position.set(ev.zona.x + 4.0, vy, ev.zona.z);
+                    player.velocity.set(0, 0, 0);
+                    placeCharacterAndCamera(clock.getElapsedTime());
+                    return;
+                }
+            }
+        }
+
         if (window.ESTACIONES_HISTORIA) {
             for (var i = 0; i < window.ESTACIONES_HISTORIA.length; i++) {
                 var est = window.ESTACIONES_HISTORIA[i];
                 var dEst = Math.hypot(est.zona.x - worldX, est.zona.z - worldZ);
                 if (dEst < 14.0) {
-                    var ny = getFloorHeightBelow(est.zona.x + 4.5, est.zona.z, est.zona.y);
+                    var ny = getFloorHeightBelow(est.zona.x + 4.5, est.zona.z, est.zona.y, null, true);
                     player.position.set(est.zona.x + 4.5, ny, est.zona.z);
                     player.velocity.set(0, 0, 0);
                     var anguloEst = Math.atan2(player.position.x - est.zona.x, player.position.z - est.zona.z);
@@ -1357,7 +1656,7 @@ function actualizarMinimapaRadar(time) {
     var pantallaBienvenida = document.getElementById('pantalla-bienvenida');
     var splashVisible = pantallaBienvenida && window.getComputedStyle(pantallaBienvenida).display !== 'none';
     if (minimapContainerEl) {
-        minimapContainerEl.style.opacity = (splashVisible || window.historiaEnCurso || seleccionPersonajeActiva) ? '0.2' : '1';
+        minimapContainerEl.style.opacity = (splashVisible || window.historiaEnCurso || seleccionPersonajeActiva || videoModalActivo) ? '0.2' : '1';
     }
 
     var w = minimapCanvas.width;
@@ -1404,6 +1703,20 @@ function actualizarMinimapaRadar(time) {
                 minimapCtx.strokeStyle = '#050d0a';
                 minimapCtx.lineWidth = 1.2;
                 minimapCtx.stroke();
+            }
+        });
+    }
+
+    // Dibujar Puntos de Video en el Radar (Cuadrados Verde Esmeralda)
+    if (window.ESTACIONES_VIDEOS) {
+        window.ESTACIONES_VIDEOS.forEach(function(ev) {
+            var pv = mundoARadar(ev.zona.x, ev.zona.z, cx, cy);
+            if (Math.hypot(pv.x - cx, pv.y - cy) < radius - 3) {
+                minimapCtx.fillStyle = ev.visitado ? '#facc15' : '#22c55e';
+                minimapCtx.strokeStyle = '#ffffff';
+                minimapCtx.lineWidth = 1.2;
+                minimapCtx.fillRect(pv.x - 4, pv.y - 4, 8, 8);
+                minimapCtx.strokeRect(pv.x - 4, pv.y - 4, 8, 8);
             }
         });
     }
@@ -1541,7 +1854,7 @@ window.tomarFotoPostal = function() {
 };
 
 // ====================================================
-// HUD DE GUÍA, BOTONES Y OVERLAY DEL TOUR
+// HUD DE GUÍA, BOTÓN DE SIRENA (JUNTO A CLIMAS) Y OVERLAY DEL TOUR
 // ====================================================
 function crearHUDGuia() {
     var viejoHud = document.getElementById('hud-guia-recorrido');
@@ -1559,7 +1872,7 @@ function crearHUDGuia() {
 
     hudPromptEl = document.createElement('div');
     hudPromptEl.id = 'hud-prompt-interaccion';
-    hudPromptEl.style.cssText = 'position:fixed; bottom:76px; left:50%; transform:translateX(-50%); background:rgba(10,25,18,0.94); border:2px solid #4ade80; color:#fff; padding:11px 24px; border-radius:50px; font-family:Montserrat,sans-serif; font-size:0.92rem; font-weight:700; z-index:9001; display:none; box-shadow:0 0 20px rgba(34,197,94,0.45); pointer-events:none; white-space:nowrap;';
+    hudPromptEl.style.cssText = 'position:fixed; bottom:76px; left:50%; transform:translateX(-50%); background:rgba(6,20,13,0.95); border:2px solid #22c55e; color:#fff; padding:11px 24px; border-radius:50px; font-family:Montserrat,sans-serif; font-size:0.92rem; font-weight:700; z-index:9001; display:none; box-shadow:0 0 22px rgba(34,197,94,0.55); pointer-events:none; white-space:nowrap;';
     document.body.appendChild(hudPromptEl);
 
     tourOverlayEl = document.createElement('div');
@@ -1569,7 +1882,7 @@ function crearHUDGuia() {
         '<div style="flex:1;">' +
             '<div id="tour-aereo-label" style="color:#facc15; font-size:0.8rem; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px;">✈️ Recorrido Aéreo por la Plaza...</div>' +
             '<div style="width:100%; height:5px; background:rgba(255,255,255,0.15); border-radius:4px; overflow:hidden;">' +
-                '<div id="tour-aereo-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #e0b066, #4ade80); transition:width 0.1s linear;"></div>' +
+                '<div id="tour-aereo-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #e0b066, #4ade80);"></div>' +
             '</div>' +
         '</div>' +
         '<button id="btn-saltar-tour" style="background:#e0b066; color:#111; border:none; padding:10px 18px; border-radius:25px; font-family:Montserrat,sans-serif; font-size:0.78rem; font-weight:800; letter-spacing:1px; cursor:pointer; white-space:nowrap;">SALTAR ⏭</button>';
@@ -1584,6 +1897,22 @@ function crearHUDGuia() {
             inicializarAudioProcedural();
             window.terminarTourPlaza();
         });
+    }
+
+    // 👉 AÑADIR BOTÓN DE SIRENA AL LADO DE DÍA / TARDE / NOCHE
+    var contenedorClima = document.querySelector('.clima-botones-container');
+    if (contenedorClima && !document.getElementById('btn-sirena')) {
+        var btnSirena = document.createElement('button');
+        btnSirena.id = 'btn-sirena';
+        btnSirena.type = 'button';
+        btnSirena.className = 'btn-clima';
+        btnSirena.style.borderColor = 'rgba(239, 68, 68, 0.55)';
+        btnSirena.style.color = '#fca5a5';
+        btnSirena.innerHTML = '🚨 Sirena (G)';
+        btnSirena.onclick = function(e) {
+            window.alternarSirena(e);
+        };
+        contenedorClima.appendChild(btnSirena);
     }
 
     var contenedorBotones = document.querySelector('.botones-container');
@@ -1639,6 +1968,8 @@ function crearHUDGuia() {
             '<li><strong>Mouse / Q, E:</strong> Girar vista</li>' +
             '<li><strong>Rueda ratón:</strong> Zoom cámara</li>' +
             '<li><strong>Tecla F:</strong> Interactuar / Historia</li>' +
+            '<li><strong>Tecla V:</strong> Ver Video Documental</li>' +
+            '<li><strong>Tecla G:</strong> Sirena Sindical ON/OFF</li>' +
             '<li><strong>Tecla C:</strong> Cambiar Personaje</li>' +
             '<li><strong>Tecla P:</strong> Tomar Foto Postal</li>' +
             '<li><strong>Tecla T:</strong> Vuelo por la Plaza</li>' +
@@ -1648,6 +1979,7 @@ function crearHUDGuia() {
 
     crearMinimapaRadar();
     crearModalSeleccionPersonaje();
+    crearModalVideoInformativo();
 }
 
 var _ultimoTextoHud = "";
@@ -1667,12 +1999,20 @@ window.actualizarHUDProgreso = function() {
         }
     }
 
+    var vidsVisitados = 0;
+    var totalVids = window.ESTACIONES_VIDEOS ? window.ESTACIONES_VIDEOS.length : 0;
+    if (window.ESTACIONES_VIDEOS) {
+        for (var v = 0; v < totalVids; v++) {
+            if (window.ESTACIONES_VIDEOS[v].visitado) vidsVisitados++;
+        }
+    }
+
     var nuevoHTML = "";
     if (siguiente) {
         var dist = Math.round(Math.hypot(siguiente.zona.x - player.position.x, siguiente.zona.z - player.position.z));
-        nuevoHTML = 'Estaciones: <b>' + visitados + '/' + total + '</b> · Siguiente: <span style="color:#fde047;">[' + siguiente.numero + '] ' + siguiente.titulo.split('(')[0] + '</span> (' + dist + 'm)';
+        nuevoHTML = 'Historia: <b>' + visitados + '/' + total + '</b> · Videos: <b style="color:#4ade80;">' + vidsVisitados + '/' + totalVids + '</b> · Siguiente: <span style="color:#fde047;">[' + siguiente.numero + '] ' + siguiente.titulo.split('(')[0] + '</span> (' + dist + 'm)';
     } else {
-        nuevoHTML = '✨ <b>¡Historia Completada (' + total + '/' + total + ')!</b> Acércate a los monumentos y presiona <b>F</b>.';
+        nuevoHTML = '✨ <b>¡Historia Completada!</b> · Videos: <b style="color:#4ade80;">' + vidsVisitados + '/' + totalVids + '</b> · Presiona <b>F</b> en monumentos o <b>V</b> en puntos de video.';
     }
 
     if (nuevoHTML !== _ultimoTextoHud) {
@@ -1682,87 +2022,147 @@ window.actualizarHUDProgreso = function() {
 };
 
 // ====================================================
-// ANILLOS DE LUZ Y CAMINO GUÍA
+// ANILLOS DE LUZ (DORADOS = HISTORIA, VERDE ESMERALDA = VIDEOS)
 // ====================================================
 function construirEstacionesYCamino() {
-    if (!window.ESTACIONES_HISTORIA) return;
-
-    var puntosCamino = [];
-    puntosCamino.push(new THREE.Vector3(CONFIG_PLAYER.startPosition[0], 1.55, CONFIG_PLAYER.startPosition[2]));
-
     var etiquetasContainer = document.getElementById('etiquetas-container');
 
-    window.ESTACIONES_HISTORIA.forEach(function(est, idx) {
-        var yRealAnillo = est.zona.y + 0.15;
-        puntosCamino.push(new THREE.Vector3(est.zona.x, yRealAnillo + 0.05, est.zona.z));
+    if (window.ESTACIONES_HISTORIA) {
+        var puntosCamino = [];
+        puntosCamino.push(new THREE.Vector3(CONFIG_PLAYER.startPosition[0], 1.55, CONFIG_PLAYER.startPosition[2]));
 
-        var g = new THREE.Group();
-        g.position.set(est.zona.x, yRealAnillo, est.zona.z);
+        window.ESTACIONES_HISTORIA.forEach(function(est, idx) {
+            var yRealAnillo = est.zona.y + 0.15;
+            puntosCamino.push(new THREE.Vector3(est.zona.x, yRealAnillo + 0.05, est.zona.z));
 
-        var ringMat = new THREE.MeshBasicMaterial({
-            color: 0xfacc15,
+            var g = new THREE.Group();
+            g.position.set(est.zona.x, yRealAnillo, est.zona.z);
+
+            var ringMat = new THREE.MeshBasicMaterial({
+                color: 0xfacc15,
+                transparent: true,
+                opacity: 0.9,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            var ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3.4, 18), ringMat);
+            ring.rotation.x = -Math.PI / 2;
+
+            var beamMat = new THREE.MeshBasicMaterial({
+                color: 0xfacc15,
+                transparent: true,
+                opacity: 0.22,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            var beam = new THREE.Mesh(new THREE.CircleGeometry(2.5, 14), beamMat);
+            beam.rotation.x = -Math.PI / 2;
+
+            g.add(ring);
+            g.add(beam);
+            congelarObjetoEstatico(g);
+            storyRingsGroup.add(g);
+
+            var divEst = null;
+            if (etiquetasContainer) {
+                divEst = document.createElement('div');
+                divEst.className = 'etiqueta-estacion-historia';
+                divEst.style.cssText = 'position:absolute; left:0; top:0; will-change:transform; background:rgba(201,168,76,0.95); color:#050d0a; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.78rem; padding:5px 12px; border-radius:20px; pointer-events:none; white-space:nowrap; box-shadow:0 2px 8px rgba(0,0,0,0.5); border:1.5px solid #fff;';
+                divEst.innerText = '📜 Punto ' + est.numero + ': ' + est.titulo.split('(')[0];
+                etiquetasContainer.appendChild(divEst);
+            }
+
+            storyRings.push({
+                group: g,
+                ring: ring,
+                beam: beam,
+                labelDiv: divEst,
+                estacionIndex: idx,
+                dentroAhora: false,
+                _vis: false,
+                _lx: 0,
+                _ly: 0
+            });
+        });
+
+        var curvaCamino = new THREE.CatmullRomCurve3(puntosCamino);
+        var puntosSuaves = curvaCamino.getPoints(70);
+        var lineaGeo = new THREE.BufferGeometry().setFromPoints(puntosSuaves);
+        var lineaMat = new THREE.LineDashedMaterial({
+            color: 0xfde047,
+            dashSize: 1.8,
+            gapSize: 1.0,
+            linewidth: 2,
             transparent: true,
-            opacity: 0.9,
-            side: THREE.DoubleSide,
-            depthWrite: false
+            opacity: 0.85
         });
-        var ring = new THREE.Mesh(new THREE.RingGeometry(2.5, 3.4, 20), ringMat);
-        ring.rotation.x = -Math.PI / 2;
+        var lineaGuia = new THREE.Line(lineaGeo, lineaMat);
+        if (lineaGuia.computeLineDistances) lineaGuia.computeLineDistances();
+        congelarObjetoEstatico(lineaGuia);
+        storyRingsGroup.add(lineaGuia);
+    }
 
-        var beamMat = new THREE.MeshBasicMaterial({
-            color: 0xfacc15,
-            transparent: true,
-            opacity: 0.22,
-            side: THREE.DoubleSide,
-            depthWrite: false
+    // 👉 CONSTRUIR LOS 4 ANILLOS VERDE ESMERALDA DE VIDEOS INFORMATIVOS
+    if (window.ESTACIONES_VIDEOS) {
+        window.ESTACIONES_VIDEOS.forEach(function(ev, vIdx) {
+            var yVid = ev.zona.y + 0.18;
+            var vg = new THREE.Group();
+            vg.position.set(ev.zona.x, yVid, ev.zona.z);
+
+            var vRingMat = new THREE.MeshBasicMaterial({
+                color: 0x22c55e,
+                transparent: true,
+                opacity: 0.95,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            var vRing = new THREE.Mesh(new THREE.RingGeometry(2.3, 3.2, 18), vRingMat);
+            vRing.rotation.x = -Math.PI / 2;
+
+            var vBeamMat = new THREE.MeshBasicMaterial({
+                color: 0x4ade80,
+                transparent: true,
+                opacity: 0.28,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            var vBeam = new THREE.Mesh(new THREE.CircleGeometry(2.3, 14), vBeamMat);
+            vBeam.rotation.x = -Math.PI / 2;
+
+            vg.add(vRing);
+            vg.add(vBeam);
+            congelarObjetoEstatico(vg);
+            videoRingsGroup.add(vg);
+
+            var divVid = null;
+            if (etiquetasContainer) {
+                divVid = document.createElement('div');
+                divVid.className = 'etiqueta-estacion-video';
+                divVid.style.cssText = 'position:absolute; left:0; top:0; will-change:transform; background:rgba(6,24,14,0.95); color:#4ade80; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.78rem; padding:6px 14px; border-radius:20px; pointer-events:auto; cursor:pointer; white-space:nowrap; box-shadow:0 0 16px rgba(34,197,94,0.65); border:2px solid #22c55e;';
+                divVid.innerText = '🎬 Video ' + ev.numero + ': ' + ev.titulo;
+                divVid.onclick = function(e) {
+                    e.stopPropagation();
+                    window.abrirVideoPunto(vIdx);
+                };
+                etiquetasContainer.appendChild(divVid);
+            }
+
+            videoRings.push({
+                group: vg,
+                ring: vRing,
+                beam: vBeam,
+                labelDiv: divVid,
+                videoIndex: vIdx,
+                dentroAhora: false,
+                _vis: false,
+                _lx: 0,
+                _ly: 0
+            });
         });
-        var beam = new THREE.Mesh(new THREE.CircleGeometry(2.5, 16), beamMat);
-        beam.rotation.x = -Math.PI / 2;
 
-        g.add(ring);
-        g.add(beam);
-        g.matrixAutoUpdate = false;
-        g.updateMatrix();
-        storyRingsGroup.add(g);
-
-        var divEst = null;
-        if (etiquetasContainer) {
-            divEst = document.createElement('div');
-            divEst.className = 'etiqueta-estacion-historia';
-            divEst.style.cssText = 'position:absolute; left:0; top:0; will-change:transform; background:rgba(201,168,76,0.95); color:#050d0a; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.78rem; padding:5px 12px; border-radius:20px; pointer-events:none; white-space:nowrap; box-shadow:0 2px 8px rgba(0,0,0,0.5); border:1.5px solid #fff;';
-            divEst.innerText = '📜 Punto ' + est.numero + ': ' + est.titulo.split('(')[0];
-            etiquetasContainer.appendChild(divEst);
-        }
-
-        storyRings.push({
-            group: g,
-            ring: ring,
-            beam: beam,
-            labelDiv: divEst,
-            estacionIndex: idx,
-            dentroAhora: false,
-            _vis: false,
-            _lx: 0,
-            _ly: 0
-        });
-    });
-
-    var curvaCamino = new THREE.CatmullRomCurve3(puntosCamino);
-    var puntosSuaves = curvaCamino.getPoints(80);
-    var lineaGeo = new THREE.BufferGeometry().setFromPoints(puntosSuaves);
-    var lineaMat = new THREE.LineDashedMaterial({
-        color: 0xfde047,
-        dashSize: 1.8,
-        gapSize: 1.0,
-        linewidth: 2,
-        transparent: true,
-        opacity: 0.85
-    });
-    var lineaGuia = new THREE.Line(lineaGeo, lineaMat);
-    if (lineaGuia.computeLineDistances) lineaGuia.computeLineDistances();
-    lineaGuia.matrixAutoUpdate = false;
-    lineaGuia.updateMatrix();
-    storyRingsGroup.add(lineaGuia);
+        congelarObjetoEstatico(videoRingsGroup);
+        scene.add(videoRingsGroup);
+    }
 
     var arrowGeo = new THREE.ConeGeometry(0.65, 1.8, 8);
     arrowGeo.rotateX(Math.PI / 2);
@@ -1770,6 +2170,7 @@ function construirEstacionesYCamino() {
     guideArrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
     scene.add(guideArrowMesh);
 
+    congelarObjetoEstatico(storyRingsGroup);
     scene.add(storyRingsGroup);
 }
 
@@ -1786,32 +2187,34 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// INICIALIZACIÓN DE LA ESCENA (MÁXIMA FLUIDEZ Y 0 SOMBRAS DINÁMICAS)
+// INICIALIZACIÓN DE LA ESCENA
 // ====================================================
 function init() {
     scene = new THREE.Scene();
+    scene.matrixAutoUpdate = false;
     scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0014);
+    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0015);
     
-    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.5, 950);
+    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.6, 550);
     camera.position.set(-35, 58, 45);
     camera.lookAt(new THREE.Vector3(-92, 12, -55));
+    camera.updateMatrixWorld(true);
 
     scene.add(characterGroup);
 
     var manager = new THREE.LoadingManager();
 
-    // 👉 RENDERER ULTRA RÁPIDO: Desactivamos shadowMap para eliminar el doble pase de geometría en GPU
     renderer = new THREE.WebGLRenderer({ 
-        antialias: true, 
+        antialias: false, 
         powerPreference: "high-performance",
         precision: "mediump",
-        stencil: false
+        stencil: false,
+        depth: true
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.0));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12; 
+    renderer.setPixelRatio(0.85);
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1.08; 
     renderer.gammaOutput = true;
     renderer.gammaFactor = 2.2;
     renderer.shadowMap.enabled = false;
@@ -1832,6 +2235,19 @@ function init() {
     };
 
     manager.onLoad = function () {
+        scene.updateMatrixWorld(true);
+
+        if (window.ESTACIONES_VIDEOS && videoRings.length > 0) {
+            for (var v = 0; v < videoRings.length; v++) {
+                var ev = window.ESTACIONES_VIDEOS[v];
+                var yPiso = getFloorHeightBelow(ev.zona.x, ev.zona.z, ev.zona.y, null, true);
+                ev.zona.y = yPiso;
+                videoRings[v].group.position.set(ev.zona.x, yPiso + 0.18, ev.zona.z);
+                congelarObjetoEstatico(videoRings[v].group);
+            }
+            congelarObjetoEstatico(videoRingsGroup);
+        }
+
         var loaderContainer = document.getElementById("loader-container");
         if (loaderContainer) loaderContainer.classList.add("loaded");
 
@@ -1845,6 +2261,7 @@ function init() {
             player.position.z
         );
         characterGroup.rotation.y = characterFacingYaw + CONFIG_PLAYER.characterYawOffset;
+        characterGroup.updateMatrixWorld(true);
         window.actualizarHUDProgreso();
 
         if (volvioDeMonumento) {
@@ -1886,29 +2303,24 @@ function init() {
         sound.setVolume(0.28);
     });
     
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.78);
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     scene.add(ambientLight);
     
-    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.78);
+    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.82);
     scene.add(hemisphereLight);
     
-    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.32);
+    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.35);
     directionalLight.position.set(60, 140, 80);
     directionalLight.castShadow = false;
+    directionalLight.updateMatrixWorld(true);
     scene.add(directionalLight);
-    
-    directionalLight2 = new THREE.DirectionalLight(0xaaccff, 0.45);
-    directionalLight2.position.set(-60, 40, -60);
-    directionalLight2.castShadow = false;
-    scene.add(directionalLight2);
 
     var textureLoader = new THREE.TextureLoader(manager);
     textureLoader.load("imagenes/cielo.jpg", function (texture) {
         if (THREE.sRGBEncoding) {
             texture.encoding = THREE.sRGBEncoding;
         }
-        texture.anisotropy = maxAnisotropy;
-        texture.mapping = THREE.EquirectangularReflectionMapping;
+        texture.anisotropy = 1;
         texturasCieloCache["imagenes/cielo.jpg"] = texture;
         scene.background = texture;
     });
@@ -1957,13 +2369,6 @@ function init() {
                 obj.castShadow = false;
                 obj.receiveShadow = false;
                 mejorarCalidadMaterial(obj.material);
-                if (Array.isArray(obj.material)) {
-                    obj.material.forEach(function(m) {
-                        if (m) m.side = THREE.DoubleSide;
-                    });
-                } else if (obj.material) {
-                    obj.material.side = THREE.DoubleSide;
-                }
                 obj.matrixAutoUpdate = false;
                 obj.updateMatrix();
                 prepararEsferaColisionMundial(obj);
@@ -1995,7 +2400,6 @@ function init() {
         console.error("⚠️ Error al cargar assets/personaje.glb:", err);
     });
 
-    // Cargador optimizado sin sombras dinámicas
     function cargarModeloSeguro(url, callbackExito) {
         cargar.load(url, function(gltf) {
             gltf.scene.traverse(function(c) {
@@ -2041,11 +2445,11 @@ function init() {
     });
     
     // ====================================================
-    // 3. POSTES DE ALUMBRADO (OPTIMIZADOS SIN POINTLIGHTS COSTOSOS)
+    // 3. POSTES DE ALUMBRADO
     // ====================================================
     cargarModeloSeguro("assets/poste.glb", function(modeloBase) {
         modeloBase.scale.set(8.5, 8.5, 8.5);
-        var geometriaEsfera = new THREE.SphereGeometry(0.85, 8, 8);
+        var geometriaEsfera = new THREE.SphereGeometry(0.85, 6, 6);
         var materialEsfera = new THREE.MeshBasicMaterial({ color: 0xfffae6 });
 
         function crearPosteConLuz(x, y, z) {
@@ -2100,9 +2504,9 @@ function init() {
 
     cargarModeloSeguro("assets/planta.glb", function(modeloPlanta) {
         modeloPlanta.scale.set(6, 7, 6);
-        var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); congelarObjetoEstatico(obj40); agregarObstaculoCircular(-85, -82, 1.4);
-        var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); congelarObjetoEstatico(obj41); agregarObstaculoCircular(-120, -70, 1.4);
-        var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); congelarObjetoEstatico(obj42); agregarObstaculoCircular(-123, -147, 1.6);
+        var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); congelarObjetoEstatico(obj40); objetosDetalleLejano.push(obj40); agregarObstaculoCircular(-85, -82, 1.4);
+        var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); congelarObjetoEstatico(obj41); objetosDetalleLejano.push(obj41); agregarObstaculoCircular(-120, -70, 1.4);
+        var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); congelarObjetoEstatico(obj42); objetosDetalleLejano.push(obj42); agregarObstaculoCircular(-123, -147, 1.6);
     });
 
     cargarModeloSeguro("assets/letrasiglo.glb", function(modeloletra) {
@@ -2129,12 +2533,12 @@ function init() {
     // ====================================================
     cargarModeloSeguro("assets/sillagoma.glb", function(modeloSilla) {
         modeloSilla.scale.set(6, 6.5, 6);
-        var obj14 = modeloSilla.clone(); obj14.position.set(-61.5, 7, 23); obj14.rotation.y = Math.PI; scene.add(obj14); registrarParaColision(obj14, true); agregarObstaculoCircular(-61.5, 23, 1.5);
-        var silla2 = modeloSilla.clone(); silla2.position.set(-61.5, 7, 10); silla2.rotation.y = Math.PI; scene.add(silla2); registrarParaColision(silla2, true); agregarObstaculoCircular(-61.5, 10, 1.5);
-        var silla3 = modeloSilla.clone(); silla3.position.set(-61.5, 7, -33); silla3.rotation.y = Math.PI; scene.add(silla3); registrarParaColision(silla3, true); agregarObstaculoCircular(-61.5, -33, 1.5);
-        var silla4 = modeloSilla.clone(); silla4.position.set(-61.5, 7, -42); silla4.rotation.y = Math.PI; scene.add(silla4); registrarParaColision(silla4, true); agregarObstaculoCircular(-61.5, -42, 1.5);
-        var silla5 = modeloSilla.clone(); silla5.position.set(-61.5, 7, -63); silla5.rotation.y = Math.PI; scene.add(silla5); registrarParaColision(silla5, true); agregarObstaculoCircular(-61.5, -63, 1.5);
-        var silla6 = modeloSilla.clone(); silla6.position.set(-61.5, 7, -87); silla6.rotation.y = Math.PI; scene.add(silla6); registrarParaColision(silla6, true); agregarObstaculoCircular(-61.5, -87, 1.5);
+        var obj14 = modeloSilla.clone(); obj14.position.set(-61.5, 7, 23); obj14.rotation.y = Math.PI; scene.add(obj14); registrarParaColision(obj14, true); objetosDetalleLejano.push(obj14); agregarObstaculoCircular(-61.5, 23, 1.5);
+        var silla2 = modeloSilla.clone(); silla2.position.set(-61.5, 7, 10); silla2.rotation.y = Math.PI; scene.add(silla2); registrarParaColision(silla2, true); objetosDetalleLejano.push(silla2); agregarObstaculoCircular(-61.5, 10, 1.5);
+        var silla3 = modeloSilla.clone(); silla3.position.set(-61.5, 7, -33); silla3.rotation.y = Math.PI; scene.add(silla3); registrarParaColision(silla3, true); objetosDetalleLejano.push(silla3); agregarObstaculoCircular(-61.5, -33, 1.5);
+        var silla4 = modeloSilla.clone(); silla4.position.set(-61.5, 7, -42); silla4.rotation.y = Math.PI; scene.add(silla4); registrarParaColision(silla4, true); objetosDetalleLejano.push(silla4); agregarObstaculoCircular(-61.5, -42, 1.5);
+        var silla5 = modeloSilla.clone(); silla5.position.set(-61.5, 7, -63); silla5.rotation.y = Math.PI; scene.add(silla5); registrarParaColision(silla5, true); objetosDetalleLejano.push(silla5); agregarObstaculoCircular(-61.5, -63, 1.5);
+        var silla6 = modeloSilla.clone(); silla6.position.set(-61.5, 7, -87); silla6.rotation.y = Math.PI; scene.add(silla6); registrarParaColision(silla6, true); objetosDetalleLejano.push(silla6); agregarObstaculoCircular(-61.5, -87, 1.5);
     });
 
     // ====================================================
@@ -2186,11 +2590,13 @@ function init() {
         var obj55 = modeloBaranda.clone(); obj55.scale.set(6, 5.5, 1.5); obj55.position.set(-121, 8.6, -85); grupoBarandas.add(obj55);
         var obj56 = modeloBaranda.clone(); obj56.scale.set(6, 5.5, 1.5); obj56.position.set(-108, 8.6, -85); grupoBarandas.add(obj56);
         var obj57 = modeloBaranda.clone(); obj57.scale.set(6, 5.5, 1.8); obj57.position.set(-101, 8.6, -90.5); obj57.rotation.set(0, Math.PI / 2, 0); grupoBarandas.add(obj57);
+
+        var grupoBarandasCopia1 = grupoBarandas.clone();
+        grupoBarandasCopia1.position.set(0, 0, -60);
+
         scene.add(grupoBarandas);
         registrarParaColision(grupoBarandas, true);
 
-        var grupoBarandasCopia1 = grupoBarandas.clone();
-        grupoBarandasCopia1.position.set(0, 0, -60); 
         scene.add(grupoBarandasCopia1);
         registrarParaColision(grupoBarandasCopia1, true);
     });
@@ -2199,43 +2605,43 @@ function init() {
     // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS
     // ====================================================
     cargarModeloSeguro("assets/planta1.glb", function(modeloplanta1) {
-        var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-83, -70, 1.2);
-        var obj19 = modeloplanta1.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-105, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-105, -70, 1.2);
-        var obj20 = modeloplanta1.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-83, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-83, -40, 1.2);
-        var obj21 = modeloplanta1.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-74, 7.5, -134); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-74, -134, 1.2);
-        var obj22 = modeloplanta1.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-103, 7.5, -134); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-103, -134, 1.2);
-        var obj23 = modeloplanta1.clone(); obj23.scale.set(8, 8, 8); obj23.position.set(-121, 7.5, -134); scene.add(obj23); congelarObjetoEstatico(obj23); agregarObstaculoCircular(-121, -134, 1.2);
+        var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -70, 1.2);
+        var obj19 = modeloplanta1.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-105, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-105, -70, 1.2);
+        var obj20 = modeloplanta1.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-83, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-83, -40, 1.2);
+        var obj21 = modeloplanta1.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-74, 7.5, -134); scene.add(obj21); congelarObjetoEstatico(obj21); objetosDetalleLejano.push(obj21); agregarObstaculoCircular(-74, -134, 1.2);
+        var obj22 = modeloplanta1.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-103, 7.5, -134); scene.add(obj22); congelarObjetoEstatico(obj22); objetosDetalleLejano.push(obj22); agregarObstaculoCircular(-103, -134, 1.2);
+        var obj23 = modeloplanta1.clone(); obj23.scale.set(8, 8, 8); obj23.position.set(-121, 7.5, -134); scene.add(obj23); congelarObjetoEstatico(obj23); objetosDetalleLejano.push(obj23); agregarObstaculoCircular(-121, -134, 1.2);
     });
 
     cargarModeloSeguro("assets/planta3.glb", function(modeloplanta3) {
-        var obj18 = modeloplanta3.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -76.5); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-83, -76.5, 1.1);
-        var obj19 = modeloplanta3.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-113, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-113, -70, 1.1);
-        var obj20 = modeloplanta3.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-90, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-90, -40, 1.1);
-        var obj21 = modeloplanta3.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-68, 7.5, -33); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-68, -33, 1.1);
-        var obj22 = modeloplanta3.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-68, 7.5, -42); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-68, -42, 1.1);
-        var obj23 = modeloplanta3.clone(); obj23.scale.set(7, 7, 7); obj23.position.set(-68, 7.5, 17); scene.add(obj23); congelarObjetoEstatico(obj23); agregarObstaculoCircular(-68, 17, 1.1);
-        var obj24 = modeloplanta3.clone(); obj24.scale.set(7, 7, 7); obj24.position.set(-68, 7.5, 25); scene.add(obj24); congelarObjetoEstatico(obj24); agregarObstaculoCircular(-68, 25, 1.1);
-        var obj25 = modeloplanta3.clone(); obj25.scale.set(7, 7, 7); obj25.position.set(-68, 7.5, 7); scene.add(obj25); congelarObjetoEstatico(obj25); agregarObstaculoCircular(-68, 7, 1.1);
-        var obj26 = modeloplanta3.clone(); obj26.scale.set(7, 7, 7); obj26.position.set(-102, 7.5, -146); scene.add(obj26); congelarObjetoEstatico(obj26); agregarObstaculoCircular(-102, -146, 1.1);
-        var obj27 = modeloplanta3.clone(); obj27.scale.set(7, 7, 7); obj27.position.set(-68, 7.5, -120); scene.add(obj27); congelarObjetoEstatico(obj27); agregarObstaculoCircular(-68, -120, 1.1);
+        var obj18 = modeloplanta3.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -76.5); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -76.5, 1.1);
+        var obj19 = modeloplanta3.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-113, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-113, -70, 1.1);
+        var obj20 = modeloplanta3.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-90, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-90, -40, 1.1);
+        var obj21 = modeloplanta3.clone(); obj21.scale.set(7, 7, 7); obj21.position.set(-68, 7.5, -33); scene.add(obj21); congelarObjetoEstatico(obj21); objetosDetalleLejano.push(obj21); agregarObstaculoCircular(-68, -33, 1.1);
+        var obj22 = modeloplanta3.clone(); obj22.scale.set(7, 7, 7); obj22.position.set(-68, 7.5, -42); scene.add(obj22); congelarObjetoEstatico(obj22); objetosDetalleLejano.push(obj22); agregarObstaculoCircular(-68, -42, 1.1);
+        var obj23 = modeloplanta3.clone(); obj23.scale.set(7, 7, 7); obj23.position.set(-68, 7.5, 17); scene.add(obj23); congelarObjetoEstatico(obj23); objetosDetalleLejano.push(obj23); agregarObstaculoCircular(-68, 17, 1.1);
+        var obj24 = modeloplanta3.clone(); obj24.scale.set(7, 7, 7); obj24.position.set(-68, 7.5, 25); scene.add(obj24); congelarObjetoEstatico(obj24); objetosDetalleLejano.push(obj24); agregarObstaculoCircular(-68, 25, 1.1);
+        var obj25 = modeloplanta3.clone(); obj25.scale.set(7, 7, 7); obj25.position.set(-68, 7.5, 7); scene.add(obj25); congelarObjetoEstatico(obj25); objetosDetalleLejano.push(obj25); agregarObstaculoCircular(-68, 7, 1.1);
+        var obj26 = modeloplanta3.clone(); obj26.scale.set(7, 7, 7); obj26.position.set(-102, 7.5, -146); scene.add(obj26); congelarObjetoEstatico(obj26); objetosDetalleLejano.push(obj26); agregarObstaculoCircular(-102, -146, 1.1);
+        var obj27 = modeloplanta3.clone(); obj27.scale.set(7, 7, 7); obj27.position.set(-68, 7.5, -120); scene.add(obj27); congelarObjetoEstatico(obj27); objetosDetalleLejano.push(obj27); agregarObstaculoCircular(-68, -120, 1.1);
     });
 
     cargarModeloSeguro("assets/otroarbolito.glb", function(modeloarbolito2) {
-        var obj18 = modeloarbolito2.clone(); obj18.scale.set(2, 2, 2); obj18.position.set(-70, 7.5, -63); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-70, -63, 1.3);
-        var obj19 = modeloarbolito2.clone(); obj19.scale.set(2, 2, 2); obj19.position.set(-100, 7.5, -64); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-100, -64, 1.3);
+        var obj18 = modeloarbolito2.clone(); obj18.scale.set(2, 2, 2); obj18.position.set(-70, 7.5, -63); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-70, -63, 1.3);
+        var obj19 = modeloarbolito2.clone(); obj19.scale.set(2, 2, 2); obj19.position.set(-100, 7.5, -64); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-100, -64, 1.3);
         var obj20 = modeloarbolito2.clone(); obj20.scale.set(4, 4, 4); obj20.position.set(-140, 7.5, -25); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-140, -25, 1.6);
-        var obj21 = modeloarbolito2.clone(); obj21.scale.set(2, 2, 2); obj21.position.set(-85, 7.5, 10); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-85, 10, 1.3);
-        var obj22 = modeloarbolito2.clone(); obj22.scale.set(1.8, 1.8, 1.8); obj22.position.set(-68, 7.5, -124); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-68, -124, 1.3);
-        var obj23 = modeloarbolito2.clone(); obj23.scale.set(1.8, 1.8, 1.8); obj23.position.set(-103, 7.5, -122); scene.add(obj23); congelarObjetoEstatico(obj23); agregarObstaculoCircular(-103, -122, 1.3);
+        var obj21 = modeloarbolito2.clone(); obj21.scale.set(2, 2, 2); obj21.position.set(-85, 7.5, 10); scene.add(obj21); congelarObjetoEstatico(obj21); objetosDetalleLejano.push(obj21); agregarObstaculoCircular(-85, 10, 1.3);
+        var obj22 = modeloarbolito2.clone(); obj22.scale.set(1.8, 1.8, 1.8); obj22.position.set(-68, 7.5, -124); scene.add(obj22); congelarObjetoEstatico(obj22); objetosDetalleLejano.push(obj22); agregarObstaculoCircular(-68, -124, 1.3);
+        var obj23 = modeloarbolito2.clone(); obj23.scale.set(1.8, 1.8, 1.8); obj23.position.set(-103, 7.5, -122); scene.add(obj23); congelarObjetoEstatico(obj23); objetosDetalleLejano.push(obj23); agregarObstaculoCircular(-103, -122, 1.3);
         var obj24 = modeloarbolito2.clone(); obj24.scale.set(4, 4, 4); obj24.position.set(-140, 7.5, 15); scene.add(obj24); congelarObjetoEstatico(obj24); agregarObstaculoCircular(-140, 15, 1.6);
     });
 
     cargarModeloSeguro("assets/otroarbolito1.glb", function(modeloarbolito3) {
-        var obj18 = modeloarbolito3.clone(); obj18.scale.set(0.05, 0.05, 0.05); obj18.position.set(-75, 7.5, -83); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-75, -83, 1.3);
-        var obj19 = modeloarbolito3.clone(); obj19.scale.set(0.05, 0.05, 0.05); obj19.position.set(-104, 7.5, -78); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-104, -78, 1.3);
-        var obj20 = modeloarbolito3.clone(); obj20.scale.set(0.05, 0.05, 0.05); obj20.position.set(-140, 7.5, -18); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-140, -18, 1.3);
-        var obj21 = modeloarbolito3.clone(); obj21.scale.set(0.05, 0.05, 0.05); obj21.position.set(-80, 7.5, 15); scene.add(obj21); congelarObjetoEstatico(obj21); agregarObstaculoCircular(-80, 15, 1.3);
-        var obj22 = modeloarbolito3.clone(); obj22.scale.set(0.05, 0.05, 0.05); obj22.position.set(-74, 7.5, -128); scene.add(obj22); congelarObjetoEstatico(obj22); agregarObstaculoCircular(-74, -128, 1.3);
+        var obj18 = modeloarbolito3.clone(); obj18.scale.set(0.05, 0.05, 0.05); obj18.position.set(-75, 7.5, -83); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-75, -83, 1.3);
+        var obj19 = modeloarbolito3.clone(); obj19.scale.set(0.05, 0.05, 0.05); obj19.position.set(-104, 7.5, -78); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-104, -78, 1.3);
+        var obj20 = modeloarbolito3.clone(); obj20.scale.set(0.05, 0.05, 0.05); obj20.position.set(-140, 7.5, -18); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-140, -18, 1.3);
+        var obj21 = modeloarbolito3.clone(); obj21.scale.set(0.05, 0.05, 0.05); obj21.position.set(-80, 7.5, 15); scene.add(obj21); congelarObjetoEstatico(obj21); objetosDetalleLejano.push(obj21); agregarObstaculoCircular(-80, 15, 1.3);
+        var obj22 = modeloarbolito3.clone(); obj22.scale.set(0.05, 0.05, 0.05); obj22.position.set(-74, 7.5, -128); scene.add(obj22); congelarObjetoEstatico(obj22); objetosDetalleLejano.push(obj22); agregarObstaculoCircular(-74, -128, 1.3);
     });
 
     cargarModeloSeguro("assets/arbol1.glb", function(modeloarbol1) {
@@ -2271,14 +2677,14 @@ function init() {
     });
 
     cargarModeloSeguro("assets/llantamaseta.glb", function(modelomaseta) {
-        var obj18 = modelomaseta.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-80, 7.5, 23); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-80, 23, 1.5);
-        var obj19 = modelomaseta.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-118, 7.5, -40); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-118, -40, 1.5);
-        var obj20 = modelomaseta.clone(); obj20.scale.set(6, 6, 6); obj20.position.set(-86, 7.5, -33.5); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-86, -33.5, 1.4);
+        var obj18 = modelomaseta.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-80, 7.5, 23); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-80, 23, 1.5);
+        var obj19 = modelomaseta.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-118, 7.5, -40); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-118, -40, 1.5);
+        var obj20 = modelomaseta.clone(); obj20.scale.set(6, 6, 6); obj20.position.set(-86, 7.5, -33.5); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-86, -33.5, 1.4);
     });
 
     cargarModeloSeguro("assets/otromasetallanta.glb", function(modelomasetaotro) {
-        var obj18 = modelomasetaotro.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-88, 7.5, 20); scene.add(obj18); congelarObjetoEstatico(obj18); agregarObstaculoCircular(-88, 20, 1.5);
-        var obj19 = modelomasetaotro.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-138, 7.5, -35); scene.add(obj19); congelarObjetoEstatico(obj19); agregarObstaculoCircular(-138, -35, 1.5);
+        var obj18 = modelomasetaotro.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-88, 7.5, 20); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-88, 20, 1.5);
+        var obj19 = modelomasetaotro.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-138, 7.5, -35); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-138, -35, 1.5);
     });
 
     cargarModeloSeguro("assets/barandadorada.glb", function(modelodorado) {
@@ -2314,6 +2720,9 @@ function placeCharacterAndCamera(elapsedTime) {
     characterGroup.position.x = player.position.x;
     characterGroup.position.z = player.position.z;
     characterGroup.rotation.y = characterFacingYaw + CONFIG_PLAYER.characterYawOffset;
+    if (characterGroup.visible) {
+        characterGroup.updateMatrixWorld(true);
+    }
 
     if (window.historiaEnCurso && window.camaraHistoriaObjetivo) {
         var t = elapsedTime || 0;
@@ -2325,6 +2734,7 @@ function placeCharacterAndCamera(elapsedTime) {
         camera.position.lerp(_historiaCamPosAnimada, 0.04);
         _cameraLookTarget.lerp(window.camaraHistoriaObjetivo.objetivo, 0.06);
         camera.lookAt(_cameraLookTarget);
+        camera.updateMatrixWorld(true);
         return;
     }
 
@@ -2372,6 +2782,7 @@ function placeCharacterAndCamera(elapsedTime) {
 
     camera.position.copy(_desiredCamPosTemp);
     camera.lookAt(_targetPointTemp);
+    camera.updateMatrixWorld(true);
 }
 
 var _floorRaycaster = new THREE.Raycaster();
@@ -2394,7 +2805,6 @@ function getFloorHeightBelow(x, z, currentY, moveDir, forceCheck) {
         oz += moveDir.z * 0.9;
     }
 
-    // 👉 Caché espacial de altura de suelo para ahorrar raycasting cuando el movimiento es mínimo
     if (!forceCheck) {
         var dSampleSq = (ox - _lastFloorSampleX) * (ox - _lastFloorSampleX) + (oz - _lastFloorSampleZ) * (oz - _lastFloorSampleZ);
         if (dSampleSq < 0.05) {
@@ -2548,39 +2958,64 @@ function tryMoveHorizontal(feetPos, moveVec) {
     return _zeroVecTemp;
 }
 
+// ====================================================
+// DETECCIÓN DE PUNTOS DE HISTORIA, PUNTOS DE VIDEO Y MONUMENTOS
+// ====================================================
 function verificarZonasDeHistoriaYMonumentos(time) {
-    if (!window.ESTACIONES_HISTORIA || tourActivo || monumentoModalActivo || seleccionPersonajeActiva) return;
+    if (tourActivo || monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) return;
 
     var px = player.position.x;
     var pz = player.position.z;
     var estacionRepetible = null;
+    var videoCercanoIndex = null;
     var siguienteNoVisitada = null;
 
-    for (var i = 0; i < storyRings.length; i++) {
-        var item = storyRings[i];
-        var est = window.ESTACIONES_HISTORIA[item.estacionIndex];
+    if (window.ESTACIONES_HISTORIA) {
+        for (var i = 0; i < storyRings.length; i++) {
+            var item = storyRings[i];
+            var est = window.ESTACIONES_HISTORIA[item.estacionIndex];
 
-        var pulso = 1 + Math.sin(time * 2.5 + i) * 0.06;
-        item.ring.scale.set(pulso, pulso, 1);
-
-        if (!est.visitado && !siguienteNoVisitada) {
-            siguienteNoVisitada = est;
-        }
-
-        var dist = Math.hypot(est.zona.x - px, est.zona.z - pz);
-        var dentro = dist <= CONFIG_PLAYER.triggerRadius;
-
-        if (dentro && !item.dentroAhora) {
-            item.dentroAhora = true;
-            if (!est.visitado && !window.historiaEnCurso) {
-                window.abrirCapituloZona(item.estacionIndex, false);
+            if (!est.visitado && !siguienteNoVisitada) {
+                siguienteNoVisitada = est;
             }
-        } else if (!dentro && item.dentroAhora) {
-            item.dentroAhora = false;
-        }
 
-        if (dentro && est.visitado) {
-            estacionRepetible = item.estacionIndex;
+            var dist = Math.hypot(est.zona.x - px, est.zona.z - pz);
+            var dentro = dist <= CONFIG_PLAYER.triggerRadius;
+
+            if (dentro && !item.dentroAhora) {
+                item.dentroAhora = true;
+                if (!est.visitado && !window.historiaEnCurso) {
+                    window.abrirCapituloZona(item.estacionIndex, false);
+                }
+            } else if (!dentro && item.dentroAhora) {
+                item.dentroAhora = false;
+            }
+
+            if (dentro && est.visitado) {
+                estacionRepetible = item.estacionIndex;
+            }
+        }
+    }
+
+    if (window.ESTACIONES_VIDEOS) {
+        for (var v = 0; v < videoRings.length; v++) {
+            var vItem = videoRings[v];
+            var ev = window.ESTACIONES_VIDEOS[vItem.videoIndex];
+            var dVid = Math.hypot(ev.zona.x - px, ev.zona.z - pz);
+            var dentroVid = dVid <= CONFIG_PLAYER.triggerRadius;
+
+            if (dentroVid && !vItem.dentroAhora) {
+                vItem.dentroAhora = true;
+                if (!ev.visitado && !window.historiaEnCurso && !videoModalActivo) {
+                    window.abrirVideoPunto(vItem.videoIndex);
+                }
+            } else if (!dentroVid && vItem.dentroAhora) {
+                vItem.dentroAhora = false;
+            }
+
+            if (dentroVid) {
+                videoCercanoIndex = vItem.videoIndex;
+            }
         }
     }
 
@@ -2607,6 +3042,7 @@ function verificarZonasDeHistoriaYMonumentos(time) {
                 pz + Math.cos(anguloHaciaDestino) * 3.5
             );
             guideArrowMesh.rotation.y = anguloHaciaDestino;
+            guideArrowMesh.updateMatrixWorld(true);
         } else {
             guideArrowMesh.visible = false;
         }
@@ -2625,8 +3061,16 @@ function verificarZonasDeHistoriaYMonumentos(time) {
     }
 
     if (hudPromptEl) {
-        if (window.historiaEnCurso || tourActivo || monumentoModalActivo || seleccionPersonajeActiva) {
+        delete hudPromptEl.dataset.repeatIndex;
+        delete hudPromptEl.dataset.videoIndex;
+
+        if (window.historiaEnCurso || tourActivo || monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) {
             hudPromptEl.style.display = 'none';
+        } else if (videoCercanoIndex !== null) {
+            var evPrompt = window.ESTACIONES_VIDEOS[videoCercanoIndex];
+            hudPromptEl.style.display = 'block';
+            hudPromptEl.innerHTML = '🎬 Presiona <kbd style="background:#22c55e;color:#000;padding:2px 8px;border-radius:6px;">V</kbd> o <kbd style="background:#facc15;color:#000;padding:2px 8px;border-radius:6px;">F</kbd> para ver Video: <b>[' + evPrompt.numero + '] ' + evPrompt.titulo + '</b>';
+            hudPromptEl.dataset.videoIndex = videoCercanoIndex;
         } else if (monumentoCercanoActual) {
             hudPromptEl.style.display = 'block';
             hudPromptEl.innerHTML = '🏛️ Presiona <kbd style="background:#22c55e;color:#000;padding:2px 8px;border-radius:6px;">F</kbd> para explorar: <b>' + monumentoCercanoActual.texto + '</b>';
@@ -2637,7 +3081,6 @@ function verificarZonasDeHistoriaYMonumentos(time) {
             hudPromptEl.dataset.repeatIndex = estacionRepetible;
         } else {
             hudPromptEl.style.display = 'none';
-            delete hudPromptEl.dataset.repeatIndex;
         }
     }
 
@@ -2669,16 +3112,26 @@ function actualizarTourAereo(delta) {
 
     camera.position.copy(_tourPosTemp);
     camera.lookAt(_tourLookTemp);
+    camera.updateMatrixWorld(true);
 
-    if (tourBarEl) {
-        tourBarEl.style.width = Math.round(rawT * 100) + '%';
+    var pct = Math.round(rawT * 100);
+    if (tourBarEl && pct !== _ultimoPorcentajeTour) {
+        _ultimoPorcentajeTour = pct;
+        tourBarEl.style.width = pct + '%';
     }
+
     if (tourLabelEl) {
-        if (rawT < 0.22) tourLabelEl.innerText = '✈️ Sobrevuelo: Ingreso y Monumentos Sindicales...';
-        else if (rawT < 0.45) tourLabelEl.innerText = '✈️ Sobrevuelo: Monumento al Minero de Siglo XX...';
-        else if (rawT < 0.70) tourLabelEl.innerText = '✈️ Sobrevuelo: Monumento a las Palliris y Jardines...';
-        else if (rawT < 0.88) tourLabelEl.innerText = '✈️ Sobrevuelo: Fuente, Reloj y Letras Siglo XX...';
-        else tourLabelEl.innerText = '👷 Llegando al punto de inicio para elegir tu personaje...';
+        var nuevoTxt = '';
+        if (rawT < 0.22) nuevoTxt = '✈️ Sobrevuelo: Ingreso y Monumentos Sindicales...';
+        else if (rawT < 0.45) nuevoTxt = '✈️ Sobrevuelo: Monumento al Minero de Siglo XX...';
+        else if (rawT < 0.70) nuevoTxt = '✈️ Sobrevuelo: Monumento a las Palliris y Jardines...';
+        else if (rawT < 0.88) nuevoTxt = '✈️ Sobrevuelo: Fuente, Reloj y Letras Siglo XX...';
+        else nuevoTxt = '👷 Llegando al punto de inicio para elegir tu personaje...';
+
+        if (nuevoTxt !== _ultimoTextoTour) {
+            _ultimoTextoTour = nuevoTxt;
+            tourLabelEl.innerText = nuevoTxt;
+        }
     }
 
     if (!splashVisible && rawT >= 1.0) {
@@ -2698,7 +3151,7 @@ function updatePlayer(delta, elapsedTime) {
         return;
     }
 
-    if (window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva) {
+    if (window.historiaEnCurso || monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) {
         player.velocity.set(0, 0, 0);
         detenerSonidoPasos();
         actualizarAnimacionMinero(delta, false, false);
@@ -2769,11 +3222,39 @@ function updatePlayer(delta, elapsedTime) {
     placeCharacterAndCamera(elapsedTime);
 }
 
+function actualizarCullingObjetosPequenos() {
+    if (!camera || objetosDetalleLejano.length === 0) return;
+    var camX = camera.position.x;
+    var camZ = camera.position.z;
+    var maxDistSq = tourActivo ? (95 * 95) : (125 * 125);
+
+    for (var i = 0; i < objetosDetalleLejano.length; i++) {
+        var obj = objetosDetalleLejano[i];
+        var dx = obj.position.x - camX;
+        var dz = obj.position.z - camZ;
+        obj.visible = (dx * dx + dz * dz) <= maxDistSq;
+    }
+}
+
 // ====================================================
-// EVENTOS Y BUCLE PRINCIPAL OPTIMIZADO
+// EVENTOS DE TECLADO (INCLUYE TECLA G = SIRENA, TECLA V = VIDEO)
 // ====================================================
 document.addEventListener('keydown', function(e) {
     inicializarAudioProcedural();
+
+    if (e.code === 'KeyG' && !e.repeat) {
+        e.preventDefault();
+        window.alternarSirena();
+        return;
+    }
+
+    if (videoModalActivo) {
+        if (e.code === 'Escape' || e.code === 'KeyV' || e.code === 'KeyF') {
+            e.preventDefault();
+            window.cerrarVideoPunto();
+        }
+        return;
+    }
 
     if (monumentoModalActivo) {
         if (e.code === 'Escape') {
@@ -2827,8 +3308,17 @@ document.addEventListener('keydown', function(e) {
         return;
     }
 
+    if (e.code === 'KeyV' && !e.repeat && !window.historiaEnCurso && !tourActivo) {
+        if (hudPromptEl && hudPromptEl.dataset.videoIndex !== undefined) {
+            window.abrirVideoPunto(parseInt(hudPromptEl.dataset.videoIndex, 10));
+            return;
+        }
+    }
+
     if (e.code === 'KeyF' && !e.repeat && !window.historiaEnCurso && !tourActivo) {
-        if (monumentoCercanoActual) {
+        if (hudPromptEl && hudPromptEl.dataset.videoIndex !== undefined) {
+            window.abrirVideoPunto(parseInt(hudPromptEl.dataset.videoIndex, 10));
+        } else if (monumentoCercanoActual) {
             window.abrirMonumentoInstantaneo(monumentoCercanoActual.enlace);
         } else if (hudPromptEl && hudPromptEl.dataset.repeatIndex !== undefined) {
             window.abrirCapituloZona(parseInt(hudPromptEl.dataset.repeatIndex, 10), false);
@@ -2841,7 +3331,7 @@ document.addEventListener('keyup', function(e) {
 });
 
 document.addEventListener('mousemove', function(e) {
-    if (locked && !window.historiaEnCurso && !tourActivo && !monumentoModalActivo && !seleccionPersonajeActiva) {
+    if (locked && !window.historiaEnCurso && !tourActivo && !monumentoModalActivo && !seleccionPersonajeActiva && !videoModalActivo) {
         player.yaw -= e.movementX * CONFIG_PLAYER.mouseSensitivity;
         player.pitch += e.movementY * CONFIG_PLAYER.mouseSensitivity;
         player.pitch = Math.max(CONFIG_PLAYER.pitchMin, Math.min(CONFIG_PLAYER.pitchMax, player.pitch));
@@ -2849,7 +3339,7 @@ document.addEventListener('mousemove', function(e) {
 });
 
 window.addEventListener('wheel', function(e) {
-    if (window.historiaEnCurso || tourActivo || monumentoModalActivo || seleccionPersonajeActiva) return;
+    if (window.historiaEnCurso || tourActivo || monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) return;
     currentCameraDistance += Math.sign(e.deltaY) * CONFIG_PLAYER.cameraZoomSpeed;
     currentCameraDistance = Math.max(CONFIG_PLAYER.cameraMinDistance, Math.min(CONFIG_PLAYER.cameraMaxDistance, currentCameraDistance));
 }, { passive: true });
@@ -2860,7 +3350,7 @@ document.addEventListener('pointerlockchange', function() {
 
 window.addEventListener('click', function(e) {
     inicializarAudioProcedural();
-    if (monumentoModalActivo || seleccionPersonajeActiva) return;
+    if (monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) return;
     if (sound && !sound.isPlaying && sound.buffer) {
         sound.play();
     }
@@ -2889,7 +3379,7 @@ function animate() {
     var elapsedTime = clock.getElapsedTime();
     _frameCounter++;
 
-    if (_frameCounter % 10 === 0) {
+    if (_frameCounter % 12 === 0) {
         modularVientoAmbiental(elapsedTime);
     }
 
@@ -2900,13 +3390,17 @@ function animate() {
 
     updatePlayer(delta, elapsedTime);
 
-    if (_frameCounter % 5 === 0) {
+    if (_frameCounter % 6 === 0) {
+        actualizarCullingObjetosPequenos();
+    }
+
+    if (!tourActivo && _frameCounter % 6 === 0) {
         verificarZonasDeHistoriaYMonumentos(elapsedTime);
         actualizarMinimapaRadar(elapsedTime);
     }
 
-    // Actualización de etiquetas 2D cada 2 frames para máxima fluidez sin tocar el DOM innecesariamente
-    if (_frameCounter % 2 === 0 && camera) {
+    var stepEtiquetas = tourActivo ? 3 : 2;
+    if (_frameCounter % stepEtiquetas === 0 && camera) {
         var winW = window.innerWidth;
         var winH = window.innerHeight;
 
@@ -2914,10 +3408,10 @@ function animate() {
             var marcador = marcadores[i];
             if (marcador.elemento) {
                 _projVec.copy(marcador.posicion).project(camera); 
-                if (_projVec.z < 1 && !window.historiaEnCurso) { 
+                if (_projVec.z < 1 && !window.historiaEnCurso && !videoModalActivo) { 
                     var x = Math.round((_projVec.x * 0.5 + 0.5) * winW);
                     var y = Math.round((_projVec.y * -0.5 + 0.5) * winH);
-                    if (x !== marcador._lx || y !== marcador._ly) {
+                    if (Math.abs(x - marcador._lx) > 1 || Math.abs(y - marcador._ly) > 1) {
                         marcador._lx = x;
                         marcador._ly = y;
                         marcador.elemento.style.transform = 'translate(-50%, -50%) translate3d(' + x + 'px,' + y + 'px, 0)';
@@ -2933,35 +3427,70 @@ function animate() {
             }
         }
 
-        for (var j = 0; j < storyRings.length; j++) {
-            var item = storyRings[j];
-            if (item.labelDiv) {
-                if (window.historiaEnCurso || tourActivo) {
-                    if (item._vis) {
+        if (!tourActivo) {
+            for (var j = 0; j < storyRings.length; j++) {
+                var item = storyRings[j];
+                if (item.labelDiv) {
+                    if (window.historiaEnCurso || videoModalActivo) {
+                        if (item._vis) {
+                            item._vis = false;
+                            item.labelDiv.style.display = 'none';
+                        }
+                        continue;
+                    }
+                    var est = window.ESTACIONES_HISTORIA[item.estacionIndex];
+                    _projVec.set(est.zona.x, est.zona.y + 3.0, est.zona.z);
+                    var distCamSq = camera.position.distanceToSquared(_projVec);
+                    _projVec.project(camera);
+                    if (_projVec.z < 1 && distCamSq < 9025) {
+                        var sx = Math.round((_projVec.x * 0.5 + 0.5) * winW);
+                        var sy = Math.round((_projVec.y * -0.5 + 0.5) * winH);
+                        if (Math.abs(sx - item._lx) > 1 || Math.abs(sy - item._ly) > 1) {
+                            item._lx = sx;
+                            item._ly = sy;
+                            item.labelDiv.style.transform = 'translate(-50%, -50%) translate3d(' + sx + 'px,' + sy + 'px, 0)';
+                        }
+                        if (!item._vis) {
+                            item._vis = true;
+                            item.labelDiv.style.display = 'block';
+                        }
+                    } else if (item._vis) {
                         item._vis = false;
                         item.labelDiv.style.display = 'none';
                     }
-                    continue;
                 }
-                var est = window.ESTACIONES_HISTORIA[item.estacionIndex];
-                _projVec.set(est.zona.x, est.zona.y + 3.0, est.zona.z);
-                var distCamSq = camera.position.distanceToSquared(_projVec);
-                _projVec.project(camera);
-                if (_projVec.z < 1 && distCamSq < 9025) {
-                    var sx = Math.round((_projVec.x * 0.5 + 0.5) * winW);
-                    var sy = Math.round((_projVec.y * -0.5 + 0.5) * winH);
-                    if (sx !== item._lx || sy !== item._ly) {
-                        item._lx = sx;
-                        item._ly = sy;
-                        item.labelDiv.style.transform = 'translate(-50%, -50%) translate3d(' + sx + 'px,' + sy + 'px, 0)';
+            }
+
+            for (var vIdx = 0; vIdx < videoRings.length; vIdx++) {
+                var vItem = videoRings[vIdx];
+                if (vItem.labelDiv) {
+                    if (window.historiaEnCurso || videoModalActivo) {
+                        if (vItem._vis) {
+                            vItem._vis = false;
+                            vItem.labelDiv.style.display = 'none';
+                        }
+                        continue;
                     }
-                    if (!item._vis) {
-                        item._vis = true;
-                        item.labelDiv.style.display = 'block';
+                    var ev = window.ESTACIONES_VIDEOS[vItem.videoIndex];
+                    _projVec.set(ev.zona.x, ev.zona.y + 3.2, ev.zona.z);
+                    var distVidSq = camera.position.distanceToSquared(_projVec);
+                    _projVec.project(camera);
+                    if (_projVec.z < 1 && distVidSq < 11000) {
+                        var vx = Math.round((_projVec.x * 0.5 + 0.5) * winW);
+                        var vy = Math.round((_projVec.y * -0.5 + 0.5) * winH);
+                        if (Math.abs(vx - vItem._lx) > 1 || Math.abs(vy - vItem._ly) > 1) {
+                            vItem._lx = vx;
+                            vItem._ly = vy;
+                            vItem.labelDiv.style.transform = 'translate(-50%, -50%) translate3d(' + vx + 'px,' + vy + 'px, 0)';
+                        }
+                        if (!vItem._vis) {
+                            vItem._vis = true;
+                            vItem.labelDiv.style.display = 'block';
+                        }
+                    } else if (vItem._vis) {
+                        vItem._vis = false;
+                        vItem.labelDiv.style.display = 'none';
                     }
-                } else if (item._vis) {
-                    item._vis = false;
-                    item.labelDiv.style.display = 'none';
                 }
             }
         }
@@ -2982,7 +3511,7 @@ window.cambiarAtmosfera = function(modo) {
         hemisphereLight.color.setHex(0xffffff);
         hemisphereLight.groundColor.setHex(0x2d1a0e);
         ambientLight.color.setHex(0xffffff);
-        ambientLight.intensity = 0.78;
+        ambientLight.intensity = 0.85;
         if (scene.fog) scene.fog.color.setHex(0xa0c4e0);
         bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xfffae6); });
         
@@ -2993,7 +3522,7 @@ window.cambiarAtmosfera = function(modo) {
         hemisphereLight.color.setHex(0xff9944);
         hemisphereLight.groundColor.setHex(0x3a1e12);
         ambientLight.color.setHex(0xff8844);
-        ambientLight.intensity = 0.62;
+        ambientLight.intensity = 0.65;
         if (scene.fog) scene.fog.color.setHex(0xc06030);
         bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffcc55); });
         
@@ -3004,7 +3533,7 @@ window.cambiarAtmosfera = function(modo) {
         hemisphereLight.color.setHex(0x334477);
         hemisphereLight.groundColor.setHex(0x111a2e);
         ambientLight.color.setHex(0x2a3b66);
-        ambientLight.intensity = 0.52;
+        ambientLight.intensity = 0.55;
         if (scene.fog) scene.fog.color.setHex(0x0a0a1a);
         bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffe066); });
     } else {
@@ -3021,8 +3550,7 @@ window.cambiarAtmosfera = function(modo) {
         if (THREE.sRGBEncoding) {
             texture.encoding = THREE.sRGBEncoding;
         }
-        texture.anisotropy = maxAnisotropy;
-        texture.mapping = THREE.EquirectangularReflectionMapping;
+        texture.anisotropy = 1;
         texturasCieloCache[texturaRuta] = texture;
         scene.background = texture;
     });
@@ -3032,10 +3560,11 @@ document.addEventListener("DOMContentLoaded", function () {
     var btnDia = document.getElementById("btn-dia");
     var btnTarde = document.getElementById("btn-tarde");
     var btnNublado = document.getElementById("btn-nublado");
-    var botonesClima = document.querySelectorAll(".btn-clima");
 
     function actualizarClaseActiva(botonSeleccionado) {
-        botonesClima.forEach(function (btn) { btn.classList.remove("activo"); });
+        [btnDia, btnTarde, btnNublado].forEach(function (btn) {
+            if (btn) btn.classList.remove("activo");
+        });
         if (botonSeleccionado) botonSeleccionado.classList.add("activo");
     }
 
@@ -3048,6 +3577,7 @@ var btnSalir = document.getElementById("btn-salir");
 if (btnSalir) {
     btnSalir.addEventListener("click", function () {
         detenerSonidoPasos();
+        if (audioSirenaEl) audioSirenaEl.pause();
         sessionStorage.removeItem("historiaCompletada");
         sessionStorage.removeItem("estadoJugadorPlaza");
         sessionStorage.removeItem("personajeElegidoPlaza");
