@@ -1,7 +1,9 @@
 // ====================================================
 // MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
-// VERSIÓN EXTREMA FLUIDEZ + PUNTOS DE VIDEOS INFORMATIVOS (ESTÉTICA VERDE SPLASH)
-// + BOTÓN Y TECLA (G) PARA SIRENA SINDICAL (sirena.mp3) + PERSONAJE SIN SOMBRA
+// VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA NÍTIDA / CALIDAD ALTA)
+// + AVISO DE HARDWARE DETECTADO EN LA PANTALLA DE CARGA (SPLASH)
+// + CARGA SECUENCIAL 1 POR 1 (ANTI ERR_HTTP2) + SOPORTE DRACO
+// + VIDEOS INFORMATIVOS + SIRENA SINDICAL (G) + LÁMPARA MINERA (L)
 // ====================================================
 
 var scene, camera, renderer, plaza, controles, sound;
@@ -11,10 +13,157 @@ var bulbosPostes = [];
 var objetosDetalleLejano = [];
 var clock = new THREE.Clock();
 
-var maxAnisotropy = 1;
+// ====================================================
+// 💻 DETECTOR AUTOMÁTICO DE HARDWARE (CALIDAD MEDIA vs CALIDAD ALTA)
+// ====================================================
+var ES_CALIDAD_MEDIA = false;
+var PERFIL_CALIDAD = {
+    nivel: 'ALTA',
+    etiquetaSplash: '🖥️ Hardware detectado • Gráficos: CALIDAD ALTA',
+    gpuNombreCorto: '',
+    pixelRatioTour: 0.90,
+    pixelRatioJuego: 1.0,
+    precisionShader: 'mediump',
+    comprimirTexturas: false, // En Calidad Alta mantiene las texturas originales intactas
+    maxTexDim: 2048,
+    maxCieloDim: 2048,
+    mantenerNormalMaps: true,
+    anisotropiaMax: 2,
+    cullingTourSq: 95 * 95,
+    cullingJuegoSq: 130 * 130,
+    farCamera: 550
+};
+
+function limpiarNombreGPU(rawRenderer) {
+    if (!rawRenderer) return '';
+    var limpio = rawRenderer
+        .replace(/ANGLE\s*\(/i, '')
+        .replace(/Direct3D11.*$/i, '')
+        .replace(/\)$/g, '')
+        .split(',')[1] || rawRenderer;
+    limpio = limpio.replace(/\(R\)|\(TM\)|Corporation|Graphics/gi, '').trim();
+    if (limpio.length > 28) limpio = limpio.substring(0, 28).trim();
+    return limpio;
+}
+
+function mostrarHardwareEnSplash() {
+    var loaderContent = document.querySelector('#loader-container .loader-content') || document.getElementById('loader-container');
+    if (!loaderContent) return;
+
+    var badge = document.getElementById('splash-hardware-info');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'splash-hardware-info';
+        badge.style.cssText =
+            'margin-top: 14px; display: inline-block; padding: 6px 16px; border-radius: 20px; ' +
+            'background: rgba(20, 32, 26, 0.85); border: 1px solid rgba(224, 176, 102, 0.45); ' +
+            'color: #e0dacf; font-family: Montserrat, sans-serif; font-size: 0.72rem; ' +
+            'font-weight: 600; letter-spacing: 1px; box-shadow: 0 4px 12px rgba(0,0,0,0.45);';
+
+        var progressText = document.getElementById('progress-text');
+        if (progressText && progressText.parentNode) {
+            progressText.parentNode.appendChild(badge);
+        } else {
+            loaderContent.appendChild(badge);
+        }
+    }
+
+    var colorNivel = (PERFIL_CALIDAD.nivel === 'ALTA') ? '#4ade80' : '#facc15';
+    var infoExtra = PERFIL_CALIDAD.gpuNombreCorto ? (' (' + PERFIL_CALIDAD.gpuNombreCorto + ')') : '';
+    badge.innerHTML = '🖥️ Hardware detectado' + infoExtra + ' • Ajuste automático: <b style="color:' + colorNivel + ';">CALIDAD ' + PERFIL_CALIDAD.nivel + '</b>';
+}
+
+function detectarPerfilHardware() {
+    var cores = navigator.hardwareConcurrency || 4;
+    var ram = navigator.deviceMemory || 8; // Si el navegador no lo soporta, asumimos 8 GB
+    var esMovil = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+    var gpuIntegradaBasica = false;
+    var gpuDedicadaPotente = false;
+    var nombreGpuDetectado = '';
+
+    try {
+        var canvasTest = document.createElement('canvas');
+        var gl = canvasTest.getContext('webgl') || canvasTest.getContext('experimental-webgl');
+        if (gl) {
+            var dbgRenderInfo = gl.getExtension('WEBGL_debug_renderer_info');
+            if (dbgRenderInfo) {
+                var rendererRaw = gl.getParameter(dbgRenderInfo.UNMASKED_RENDERER_WEBGL) || '';
+                nombreGpuDetectado = limpiarNombreGPU(rendererRaw);
+                var rendererStr = rendererRaw.toLowerCase();
+
+                // 1. Detectar si tiene tarjeta gráfica dedicada potente (NVIDIA RTX / GTX, Radeon RX, Apple M1/M2/M3/M4)
+                if (/nvidia|geforce|rtx|gtx|radeon rx|radeon pro|apple m[1-9]/i.test(rendererStr)) {
+                    gpuDedicadaPotente = true;
+                }
+
+                // 2. Detectar si es gráfica integrada básica
+                if (!gpuDedicadaPotente && /intel\(r\) hd|intel\(r\) uhd|celeron|pentium|mesa|llvmpipe|swiftshader|mali-|adreno \(tm\) [2345]|powervr/i.test(rendererStr)) {
+                    gpuIntegradaBasica = true;
+                }
+            }
+        }
+    } catch (e) {}
+
+    // Si tiene una NVIDIA GeForce / RTX dedicada (y no es celular), va directo a CALIDAD ALTA sin importar RAM/Cores
+    if (!gpuDedicadaPotente && (esMovil || cores <= 4 || ram <= 4 || gpuIntegradaBasica)) {
+        ES_CALIDAD_MEDIA = true;
+        PERFIL_CALIDAD = {
+            nivel: 'MEDIA',
+            gpuNombreCorto: nombreGpuDetectado,
+            pixelRatioTour: 0.85,
+            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 0.92),
+            precisionShader: 'mediump',
+            comprimirTexturas: true,
+            maxTexDim: 1024,
+            maxCieloDim: 1536,
+            mantenerNormalMaps: true,
+            anisotropiaMax: 2,
+            cullingTourSq: 90 * 90,
+            cullingJuegoSq: 120 * 120,
+            farCamera: 520
+        };
+    } else {
+        // 👉 MODO PARA NVIDIA RTX 3050+ Y PCs DE GAMA ALTA
+        ES_CALIDAD_MEDIA = false;
+        PERFIL_CALIDAD = {
+            nivel: 'ALTA',
+            gpuNombreCorto: nombreGpuDetectado,
+            pixelRatioTour: 1.0,
+            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 1.25), // Aprovecha pantallas FullHD/2K con total nitidez
+            precisionShader: 'highp',
+            comprimirTexturas: false,
+            maxTexDim: 2048,
+            maxCieloDim: 2048,
+            mantenerNormalMaps: true,
+            anisotropiaMax: 4, // Mayor nitidez en el piso de la plaza visto en diagonal
+            cullingTourSq: 110 * 110,
+            cullingJuegoSq: 145 * 145,
+            farCamera: 550
+        };
+    }
+
+    console.log("🖥️ Hardware detectado:", nombreGpuDetectado || "Estándar", "-> Nivel: CALIDAD " + PERFIL_CALIDAD.nivel);
+    mostrarHardwareEnSplash();
+}
+
+detectarPerfilHardware();
+document.addEventListener("DOMContentLoaded", mostrarHardwareEnSplash);
+
+var maxAnisotropy = PERFIL_CALIDAD.anisotropiaMax;
 var monumentoModalActivo = false;
 var monumentoIframeOverlay = null;
 var texturasCieloCache = {};
+var modoAtmosferaActual = 'dia';
+
+// ====================================================
+// 🔦 VARIABLES DE LA LINTERNA DEL GUARDATOJO (TECLA L)
+// ====================================================
+var linternaSpotLight = null;
+var linternaTargetObj = null;
+var linternaHaloLight = null;
+var linternaActiva = false;
+var avisoLinternaEl = null;
+var _avisoLinternaTimer = null;
 
 // Variables para el Selector de Personaje (Minero / Minera)
 var seleccionPersonajeActiva = false;
@@ -48,7 +197,7 @@ window.ESTACIONES_VIDEOS = [
         fuente: "Proyecto FRK (@proyecto_frk). Documental corto sobre el Sindicato de Siglo XX y Radio La Voz del Minero (TikTok).",
         urlOriginal: "https://www.tiktok.com/@proyecto_frk/video/7451396319442210053?_r=1&_t=ZS-9BN5YoyTpmE",
         rutas: ["videos/video1.mp4", "audios/video1.mp4", "assets/video1.mp4", "audios/video1.mp3", "videos/video1.mp3"],
-        zona: new THREE.Vector3(-65,15, 100),
+        zona: new THREE.Vector3(-65, 15, 100),
         visitado: false
     },
     {
@@ -94,18 +243,35 @@ var videoPlayerEl = null;
 var videoIndiceActual = 0;
 
 // ====================================================
-// 🚨 MOTOR DE LA SIRENA SINDICAL (sirena.mp3) - BOTÓN Y TECLA G
+// 🔊 CONTROLADOR CENTRALIZADO DE MÚSICA, VIENTO Y SIRENA
 // ====================================================
+var musicaFondoDeseada = false;
+var sirenaPausadaPorModal = false;
+
 var audioSirenaEl = null;
 var sirenaActiva = false;
 var rutasSirena = ["audios/sirena.mp3", "assets/sirena.mp3", "sirena.mp3"];
 var indiceRutaSirena = 0;
 
+var audioVientoEl = null;
+var audioPasosEl = null;
+var audioMp3Inicializado = false;
+var pasosMp3Disponible = true;
+var vientoMp3Disponible = true;
+
+var sfxCtx = null;
+var sfxNoiseBuffer = null;
+var sfxVientoActivo = false;
+var sfxVientoGain = null;
+var sfxVientoFilter = null;
+var stepTimer = 0;
+var stepFootIndex = 0;
+
 function prepararAudioSirena() {
     if (audioSirenaEl) return;
     audioSirenaEl = new Audio(rutasSirena[0]);
     audioSirenaEl.loop = true;
-    audioSirenaEl.preload = 'auto';
+    audioSirenaEl.preload = ES_CALIDAD_MEDIA ? 'none' : 'auto';
     audioSirenaEl.volume = 1;
 
     audioSirenaEl.addEventListener('error', function() {
@@ -116,7 +282,9 @@ function prepararAudioSirena() {
     });
 }
 
-prepararAudioSirena();
+if (!ES_CALIDAD_MEDIA) {
+    prepararAudioSirena();
+}
 
 function actualizarBotonSirenaUI() {
     var btnSirena = document.getElementById('btn-sirena');
@@ -136,12 +304,39 @@ function actualizarBotonSirenaUI() {
     }
 }
 
+function sincronizarAudioFondoYSirena() {
+    var silenciarFondo = videoModalActivo || sirenaActiva || monumentoModalActivo;
+
+    if (silenciarFondo) {
+        if (sound && sound.isPlaying) {
+            sound.pause();
+        }
+        if (audioVientoEl && !audioVientoEl.paused) {
+            audioVientoEl.pause();
+        }
+        if (sfxVientoGain) {
+            sfxVientoGain.gain.value = 0.0001;
+        }
+    } else {
+        if (musicaFondoDeseada && sound && sound.buffer && !sound.isPlaying) {
+            try { sound.play(); } catch (e) {}
+        }
+        if (vientoMp3Disponible && audioVientoEl && audioVientoEl.paused && audioMp3Inicializado) {
+            var p = audioVientoEl.play();
+            if (p !== undefined) p.catch(function() {});
+        }
+    }
+}
+
 window.alternarSirena = function(e) {
     if (e && e.stopPropagation) e.stopPropagation();
     prepararAudioSirena();
 
     if (!sirenaActiva) {
         sirenaActiva = true;
+        sirenaPausadaPorModal = false;
+        sincronizarAudioFondoYSirena();
+
         audioSirenaEl.volume = 0.9;
         var prom = audioSirenaEl.play();
         if (prom !== undefined) {
@@ -151,34 +346,19 @@ window.alternarSirena = function(e) {
         }
     } else {
         sirenaActiva = false;
+        sirenaPausadaPorModal = false;
         audioSirenaEl.pause();
         audioSirenaEl.currentTime = 0;
+        sincronizarAudioFondoYSirena();
     }
     actualizarBotonSirenaUI();
 };
-
-// ====================================================
-// MOTOR DE AUDIO MP3 FUERTE (audios/pasos.mp3 y audios/viento.mp3)
-// ====================================================
-var audioVientoEl = null;
-var audioPasosEl = null;
-var audioMp3Inicializado = false;
-var pasosMp3Disponible = true;
-var vientoMp3Disponible = true;
-
-var sfxCtx = null;
-var sfxNoiseBuffer = null;
-var sfxVientoActivo = false;
-var sfxVientoGain = null;
-var sfxVientoFilter = null;
-var stepTimer = 0;
-var stepFootIndex = 0;
 
 function prepararElementosAudioMP3() {
     if (!audioVientoEl) {
         audioVientoEl = new Audio('audios/viento.mp3');
         audioVientoEl.loop = true;
-        audioVientoEl.preload = 'auto';
+        audioVientoEl.preload = ES_CALIDAD_MEDIA ? 'none' : 'auto';
         audioVientoEl.volume = 0.1;
         audioVientoEl.addEventListener('error', function() {
             vientoMp3Disponible = false;
@@ -187,7 +367,7 @@ function prepararElementosAudioMP3() {
     if (!audioPasosEl) {
         audioPasosEl = new Audio('audios/pasos.mp3');
         audioPasosEl.loop = true;
-        audioPasosEl.preload = 'auto';
+        audioPasosEl.preload = ES_CALIDAD_MEDIA ? 'none' : 'auto';
         audioPasosEl.volume = 1.0;
         audioPasosEl.addEventListener('error', function() {
             pasosMp3Disponible = false;
@@ -195,18 +375,22 @@ function prepararElementosAudioMP3() {
     }
 }
 
-prepararElementosAudioMP3();
+if (!ES_CALIDAD_MEDIA) {
+    prepararElementosAudioMP3();
+}
 
 function inicializarAudioProcedural() {
     prepararElementosAudioMP3();
 
-    if (vientoMp3Disponible && audioVientoEl && audioVientoEl.paused && !monumentoModalActivo && !videoModalActivo) {
+    if (vientoMp3Disponible && audioVientoEl && audioVientoEl.paused && !monumentoModalActivo && !videoModalActivo && !sirenaActiva) {
         var playPromise = audioVientoEl.play();
         if (playPromise !== undefined) {
             playPromise.then(function() {
                 audioMp3Inicializado = true;
             }).catch(function() {});
         }
+    } else {
+        audioMp3Inicializado = true;
     }
 
     if (sfxCtx) {
@@ -254,8 +438,22 @@ function iniciarSonidoVientoYArboles() {
 }
 
 function modularVientoAmbiental(elapsedTime) {
+    if (videoModalActivo || sirenaActiva || monumentoModalActivo) {
+        if (audioVientoEl && !audioVientoEl.paused) {
+            audioVientoEl.pause();
+        }
+        if (sfxVientoGain) {
+            sfxVientoGain.gain.value = 0.0001;
+        }
+        return;
+    }
+
     if (vientoMp3Disponible && audioVientoEl) {
-        if (monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) {
+        if (audioMp3Inicializado && audioVientoEl.paused) {
+            var p = audioVientoEl.play();
+            if (p !== undefined) p.catch(function() {});
+        }
+        if (seleccionPersonajeActiva) {
             audioVientoEl.volume = 0.12;
         } else {
             var rachaMp3 = Math.sin(elapsedTime * 0.5) * 0.12 + Math.cos(elapsedTime * 0.9) * 0.08;
@@ -265,7 +463,7 @@ function modularVientoAmbiental(elapsedTime) {
     }
 
     if (!sfxCtx || !sfxVientoFilter || !sfxVientoGain) return;
-    if (monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) {
+    if (seleccionPersonajeActiva) {
         sfxVientoGain.gain.value = 0.02;
         return;
     }
@@ -354,6 +552,127 @@ function reproducirPasoCementoRespaldo(isRunning) {
     thudGain.connect(sfxCtx.destination);
     thud.start(now);
     thud.stop(now + 0.07);
+}
+
+// ====================================================
+// 🔦 SISTEMA DE LINTERNA DEL GUARDATOJO (LUZ DINÁMICA EN EL CASCO - TECLA L)
+// ====================================================
+function inicializarLinternaGuardatojo() {
+    if (!scene || linternaSpotLight) return;
+
+    linternaSpotLight = new THREE.SpotLight(0xfff3c4, 0, 145, Math.PI / 4.2, 0.48, 1.1);
+    linternaSpotLight.castShadow = false;
+    scene.add(linternaSpotLight);
+
+    linternaTargetObj = new THREE.Object3D();
+    scene.add(linternaTargetObj);
+    linternaSpotLight.target = linternaTargetObj;
+
+    linternaHaloLight = new THREE.PointLight(0xffe599, 0, 22, 1.5);
+    linternaHaloLight.castShadow = false;
+    scene.add(linternaHaloLight);
+}
+
+function actualizarBotonLinternaUI() {
+    var btnLinterna = document.getElementById('btn-linterna');
+    if (!btnLinterna) return;
+    if (linternaActiva) {
+        btnLinterna.innerHTML = '🔦 LÁMPARA: ON (L)';
+        btnLinterna.style.background = 'rgba(250, 204, 21, 0.92)';
+        btnLinterna.style.borderColor = '#ffffff';
+        btnLinterna.style.color = '#0a0f0d';
+        btnLinterna.style.boxShadow = '0 0 18px rgba(250, 204, 21, 0.95)';
+    } else {
+        btnLinterna.innerHTML = '🔦 Lámpara (L)';
+        btnLinterna.style.background = 'rgba(30, 25, 20, 0.65)';
+        btnLinterna.style.borderColor = 'rgba(250, 204, 21, 0.6)';
+        btnLinterna.style.color = '#fde047';
+        btnLinterna.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4)';
+    }
+}
+
+function mostrarAvisoLinternaGuardatojo(mensajeHTML, duracionMs) {
+    if (!avisoLinternaEl) {
+        avisoLinternaEl = document.createElement('div');
+        avisoLinternaEl.id = 'aviso-linterna-guardatojo';
+        avisoLinternaEl.style.cssText =
+            'position:fixed; top:92px; left:50%; transform:translateX(-50%); ' +
+            'background:rgba(10, 18, 14, 0.95); border:2px solid #facc15; color:#ffffff; ' +
+            'padding:12px 26px; border-radius:50px; font-family:Montserrat,sans-serif; ' +
+            'font-size:0.9rem; font-weight:700; z-index:9400; display:none; align-items:center; gap:10px; ' +
+            'box-shadow:0 0 28px rgba(250, 204, 21, 0.65); pointer-events:none; white-space:nowrap; ' +
+            'transition:opacity 0.3s ease;';
+        document.body.appendChild(avisoLinternaEl);
+    }
+
+    avisoLinternaEl.innerHTML = mensajeHTML;
+    avisoLinternaEl.style.display = 'flex';
+    avisoLinternaEl.style.opacity = '1';
+
+    if (_avisoLinternaTimer) clearTimeout(_avisoLinternaTimer);
+    _avisoLinternaTimer = setTimeout(function() {
+        if (avisoLinternaEl) {
+            avisoLinternaEl.style.opacity = '0';
+            setTimeout(function() {
+                if (avisoLinternaEl) avisoLinternaEl.style.display = 'none';
+            }, 300);
+        }
+    }, duracionMs || 5200);
+}
+
+window.alternarLinternaGuardatojo = function(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!linternaSpotLight) inicializarLinternaGuardatojo();
+
+    linternaActiva = !linternaActiva;
+
+    if (linternaSpotLight && linternaHaloLight) {
+        if (linternaActiva) {
+            var esNoche = (modoAtmosferaActual === 'noche' || modoAtmosferaActual === 'nublado');
+            linternaSpotLight.intensity = esNoche ? 3.8 : 2.2;
+            linternaHaloLight.intensity = esNoche ? 1.35 : 0.7;
+            mostrarAvisoLinternaGuardatojo('🔦 Lámpara minera del guardatojo <b style="color:#4ade80;">ENCENDIDA</b>', 2400);
+        } else {
+            linternaSpotLight.intensity = 0;
+            linternaHaloLight.intensity = 0;
+            mostrarAvisoLinternaGuardatojo('🔦 Lámpara minera del guardatojo <b style="color:#fca5a5;">APAGADA</b>', 2000);
+        }
+    }
+
+    actualizarPosicionLinternaGuardatojo();
+    actualizarBotonLinternaUI();
+};
+
+var _linternaForwardTemp = new THREE.Vector3();
+function actualizarPosicionLinternaGuardatojo() {
+    if (!linternaActiva || !linternaSpotLight || !linternaTargetObj || !camera) return;
+
+    if (tourActivo || window.historiaEnCurso) {
+        camera.getWorldDirection(_linternaForwardTemp);
+        linternaSpotLight.position.copy(camera.position);
+        linternaTargetObj.position.copy(camera.position).addScaledVector(_linternaForwardTemp, 45);
+        if (linternaHaloLight) linternaHaloLight.position.copy(camera.position);
+    } else {
+        var cascoX = player.position.x;
+        var cascoY = player.position.y + 8.6;
+        var cascoZ = player.position.z;
+
+        linternaSpotLight.position.set(cascoX, cascoY, cascoZ);
+        if (linternaHaloLight) {
+            linternaHaloLight.position.set(cascoX, cascoY + 0.4, cascoZ);
+        }
+
+        camera.getWorldDirection(_linternaForwardTemp);
+        linternaTargetObj.position.set(
+            cascoX + _linternaForwardTemp.x * 55,
+            cascoY + _linternaForwardTemp.y * 45,
+            cascoZ + _linternaForwardTemp.z * 55
+        );
+    }
+
+    linternaSpotLight.updateMatrixWorld(true);
+    linternaTargetObj.updateMatrixWorld(true);
+    if (linternaHaloLight) linternaHaloLight.updateMatrixWorld(true);
 }
 
 // ====================================================
@@ -483,7 +802,7 @@ var marcadores = [
 ];
 
 // ====================================================
-// 🎬 VENTANA MODAL REPRODUCTORA DE VIDEOS (MISMO VERDE ESMERALDA Y DORADO DEL SPLASH)
+// 🎬 VENTANA MODAL REPRODUCTORA DE VIDEOS (PAUSA Y REANUDA MÚSICA + VIENTO)
 // ====================================================
 function crearModalVideoInformativo() {
     if (videoModalOverlayEl) return;
@@ -497,8 +816,6 @@ function crearModalVideoInformativo() {
 
     videoModalOverlayEl.innerHTML =
         '<div style="background:rgba(6, 20, 13, 0.95); border:2.5px solid #22c55e; border-radius:28px; width:min(900px, 95vw); max-height:92vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 80px rgba(0,0,0,0.95), 0 0 38px rgba(34,197,94,0.45), inset 0 0 40px rgba(34,197,94,0.12);">' +
-            
-            // CABECERA VERDE ESMERALDA + DORADO
             '<div style="display:flex; justify-content:space-between; align-items:center; padding:18px 28px; background:linear-gradient(90deg, rgba(10,34,22,0.98) 0%, rgba(4,16,10,0.98) 100%); border-bottom:1.5px solid rgba(34,197,94,0.45);">' +
                 '<div>' +
                     '<span id="video-modal-badge" style="color:#facc15; font-size:0.78rem; font-weight:800; letter-spacing:3.5px; text-transform:uppercase; display:block; text-shadow:0 0 10px rgba(250,204,21,0.5);">🎬 DOCUMENTAL HISTÓRICO • ESTACIÓN DE VIDEO</span>' +
@@ -507,16 +824,11 @@ function crearModalVideoInformativo() {
                 '</div>' +
                 '<button type="button" id="btn-cerrar-video-x" title="Cerrar video" style="background:rgba(34,197,94,0.18); border:2px solid #22c55e; color:#ffffff; width:42px; height:42px; border-radius:50%; font-size:1.15rem; font-weight:bold; cursor:pointer; box-shadow:0 0 15px rgba(34,197,94,0.4); transition:all 0.25s ease;">✕</button>' +
             '</div>' +
-
-            // CUERPO CON MARCO VERDE BRILLANTE PARA EL VIDEO
             '<div style="padding:20px 28px; display:flex; flex-direction:column; gap:14px; overflow-y:auto;">' +
                 '<div style="width:100%; background:#020805; border-radius:18px; border:2.5px solid #22c55e; padding:5px; box-sizing:border-box; overflow:hidden; position:relative; min-height:260px; max-height:52vh; display:flex; align-items:center; justify-content:center; box-shadow:0 0 28px rgba(34,197,94,0.38), inset 0 0 18px rgba(34,197,94,0.2);">' +
                     '<video id="reproductor-video-punto" controls playsinline style="width:100%; max-height:49vh; border-radius:12px; display:block; background:#000;"></video>' +
                 '</div>' +
-
                 '<p id="video-modal-desc" style="color:#d1fae5; font-size:0.9rem; line-height:1.6; margin:0; text-align:justify;"></p>' +
-
-                // CAJA DE BIBLIOGRAFÍA Y ENLACE ORIGINAL DEL VIDEO ABAJITO
                 '<div style="background:rgba(4,16,10,0.92); border:1.5px solid rgba(34,197,94,0.45); border-left:4px solid #facc15; border-radius:12px; padding:12px 16px; display:flex; flex-direction:column; gap:6px;">' +
                     '<div id="video-modal-fuente" style="color:#f1cf76; font-size:0.8rem; font-weight:700;">📚 Fuente bibliográfica:</div>' +
                     '<div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">' +
@@ -525,8 +837,6 @@ function crearModalVideoInformativo() {
                     '</div>' +
                 '</div>' +
             '</div>' +
-
-            // PIE DEL MODAL CON BOTÓN VERDE ESTILO SPLASH
             '<div style="padding:14px 28px; background:rgba(3,12,7,0.96); border-top:1.5px solid rgba(34,197,94,0.35); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">' +
                 '<span style="color:rgba(209,250,229,0.75); font-size:0.76rem; font-weight:600;">💡 Presiona <b style="color:#4ade80;">ESC</b> o <b style="color:#4ade80;">V</b> para volver al recorrido</span>' +
                 '<button type="button" id="btn-cerrar-video-ok" style="background:linear-gradient(90deg, #16a34a 0%, #22c55e 50%, #4ade80 100%); color:#031109; border:2px solid #86efac; padding:11px 28px; border-radius:50px; font-family:Montserrat,sans-serif; font-size:0.82rem; font-weight:800; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase; box-shadow:0 0 22px rgba(34,197,94,0.6);">CONTINUAR RECORRIDO →</button>' +
@@ -553,6 +863,14 @@ window.abrirVideoPunto = function(indice) {
     estVid.visitado = true;
 
     detenerSonidoPasos();
+
+    if (sirenaActiva && audioSirenaEl && !audioSirenaEl.paused) {
+        sirenaPausadaPorModal = true;
+        audioSirenaEl.pause();
+    }
+
+    sincronizarAudioFondoYSirena();
+
     keys = {};
     if (document.pointerLockElement) {
         document.exitPointerLock();
@@ -622,16 +940,115 @@ window.cerrarVideoPunto = function() {
     if (videoModalOverlayEl) {
         videoModalOverlayEl.style.display = 'none';
     }
+
+    if (sirenaActiva && sirenaPausadaPorModal && audioSirenaEl) {
+        sirenaPausadaPorModal = false;
+        var pSir = audioSirenaEl.play();
+        if (pSir !== undefined) pSir.catch(function() {});
+    }
+
+    sincronizarAudioFondoYSirena();
+
     clock.getDelta();
 };
 
 // ====================================================
-// CARGADOR INTELIGENTE DE GLB
+// GESTIÓN ADAPTATIVA DE TEXTURAS, MATERIALES Y DRACO (CALIDAD MEDIA Y ALTA)
+// ====================================================
+var _dracoLoaderGlobal = null;
+var _texturasOptimizadasCache = new WeakMap();
+
+function obtenerDracoLoader() {
+    if (!_dracoLoaderGlobal && typeof THREE.DRACOLoader !== 'undefined') {
+        _dracoLoaderGlobal = new THREE.DRACOLoader();
+        _dracoLoaderGlobal.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+        _dracoLoaderGlobal.setDecoderConfig({ type: 'js' });
+    }
+    return _dracoLoaderGlobal;
+}
+
+function crearGLTFLoaderOptimizado() {
+    var loader = new THREE.GLTFLoader();
+    var draco = obtenerDracoLoader();
+    if (draco) {
+        loader.setDRACOLoader(draco);
+    }
+    return loader;
+}
+
+function comprimirTexturaEnCanvas(tex, maxDim) {
+    if (!tex || !tex.image) return;
+
+    if (!PERFIL_CALIDAD.comprimirTexturas) {
+        tex.anisotropy = maxAnisotropy;
+        return;
+    }
+
+    if (_texturasOptimizadasCache.has(tex)) return;
+    _texturasOptimizadasCache.set(tex, true);
+
+    var img = tex.image;
+    var w = img.width || img.videoWidth || 0;
+    var h = img.height || img.videoHeight || 0;
+
+    if (w > maxDim || h > maxDim) {
+        var escala = maxDim / Math.max(w, h);
+        var nw = Math.max(128, Math.floor(w * escala));
+        var nh = Math.max(128, Math.floor(h * escala));
+        try {
+            var canvas = document.createElement('canvas');
+            canvas.width = nw;
+            canvas.height = nh;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, nw, nh);
+            tex.image = canvas;
+            tex.needsUpdate = true;
+        } catch (e) {}
+    }
+
+    // Mantiene mipmaps y anisotropía en Calidad Media para que las texturas se vean limpias y nítidas
+    tex.anisotropy = maxAnisotropy;
+}
+
+function mejorarCalidadMaterial(material) {
+    if (!material) return;
+    var mats = Array.isArray(material) ? material : [material];
+    for (var i = 0; i < mats.length; i++) {
+        var m = mats[i];
+        if (!m) continue;
+
+        if (ES_CALIDAD_MEDIA) {
+            // CALIDAD MEDIA: Texturas a 1024px, conserva normalMap y precisión mediump
+            if (m.map) {
+                comprimirTexturaEnCanvas(m.map, PERFIL_CALIDAD.maxTexDim);
+            }
+            if (m.normalMap) {
+                comprimirTexturaEnCanvas(m.normalMap, 512);
+            }
+            if (m.roughnessMap) { m.roughnessMap.dispose(); m.roughnessMap = null; }
+            if (m.metalnessMap) { m.metalnessMap.dispose(); m.metalnessMap = null; }
+            if (m.aoMap) { m.aoMap.dispose(); m.aoMap = null; }
+            m.shadowSide = null;
+            m.precision = "mediump";
+            m.needsUpdate = true;
+        } else {
+            // CALIDAD ALTA: Original completa
+            if (m.map) {
+                m.map.anisotropy = maxAnisotropy;
+            }
+            m.shadowSide = null;
+            m.precision = "mediump";
+        }
+    }
+}
+
+// ====================================================
+// CARGADOR INTELIGENTE DE GLB (CON DRACO + REINTENTO)
 // ====================================================
 function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
     var rutas = Array.isArray(listaRutas) ? listaRutas : [listaRutas];
     var indice = 0;
-    var loader = new THREE.GLTFLoader();
+    var loader = crearGLTFLoaderOptimizado();
 
     function intentarSiguiente() {
         if (indice >= rutas.length) {
@@ -642,7 +1059,7 @@ function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
         loader.load(rutaActual, function(gltf) {
             onSuccess(gltf, rutaActual);
         }, undefined, function() {
-            intentarSiguiente();
+            setTimeout(intentarSiguiente, 150);
         });
     }
 
@@ -729,8 +1146,13 @@ var _offscreenPreviewRenderer = null;
 
 function obtenerRendererPreviewCompartido(w, h) {
     if (!_offscreenPreviewRenderer) {
-        _offscreenPreviewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, powerPreference: "high-performance" });
-        _offscreenPreviewRenderer.setPixelRatio(1.0);
+        _offscreenPreviewRenderer = new THREE.WebGLRenderer({
+            alpha: true,
+            antialias: true,
+            powerPreference: "high-performance",
+            precision: PERFIL_CALIDAD.precisionShader
+        });
+        _offscreenPreviewRenderer.setPixelRatio(ES_CALIDAD_MEDIA ? 0.92 : 1.0);
         _offscreenPreviewRenderer.gammaOutput = true;
         _offscreenPreviewRenderer.gammaFactor = 2.2;
     }
@@ -874,9 +1296,7 @@ function crearModalSeleccionPersonaje() {
             '<div style="color:#facc15; font-size:0.75rem; font-weight:800; letter-spacing:3px; text-transform:uppercase; margin-bottom:4px;">✨ PLAZA DEL MINERO - SIGLO XX ✨</div>' +
             '<h2 style="font-family:Cinzel Decorative,Cinzel,serif; color:#ffffff; font-size:clamp(1.4rem, 2.3vw, 2.0rem); margin:0 0 4px 0; letter-spacing:2px;">ELIGE TU PERSONAJE</h2>' +
             '<p style="color:#cbd5e1; font-size:0.85rem; margin:0 0 14px 0; line-height:1.35;">Selecciona con quién deseas recorrer a pie la histórica Plaza del Minero:</p>' +
-            
             '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(310px, 1fr)); gap:22px; margin-bottom:8px; align-items:stretch;">' +
-                
                 '<div id="card-elegir-minero" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(224,176,102,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.2s ease; display:flex; flex-direction:column; align-items:center;">' +
                     '<div style="width:100%; height:clamp(240px, 38vh, 300px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(250,204,21,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(250,204,21,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden;">' +
                         '<canvas id="preview-canvas-minero" style="width:100%; height:100%; max-width:300px; max-height:260px; object-fit:contain; display:block;"></canvas>' +
@@ -885,7 +1305,6 @@ function crearModalSeleccionPersonaje() {
                     '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Trabajador del subsuelo de Siglo XX con guardatojo y equipo tradicional.</p>' +
                     '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #e0b066, #facc15); color:#0a0f0d; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase;">ELEGIR MINERO</button>' +
                 '</div>' +
-
                 '<div id="card-elegir-minera" style="background:linear-gradient(160deg, rgba(24,38,32,0.95) 0%, rgba(12,18,16,0.98) 100%); border:2px solid rgba(74,222,128,0.65); border-radius:20px; padding:14px 18px 16px 18px; cursor:pointer; transition:transform 0.2s ease; display:flex; flex-direction:column; align-items:center;">' +
                     '<div style="width:100%; height:clamp(240px, 38vh, 300px); border-radius:16px; background:radial-gradient(circle at 50% 50%, rgba(74,222,128,0.22) 0%, rgba(10,18,15,0.97) 74%); border:1.5px solid rgba(74,222,128,0.5); display:flex; align-items:center; justify-content:center; margin-bottom:10px; overflow:hidden;">' +
                         '<canvas id="preview-canvas-minera" style="width:100%; height:100%; max-width:300px; max-height:260px; object-fit:contain; display:block;"></canvas>' +
@@ -894,7 +1313,6 @@ function crearModalSeleccionPersonaje() {
                     '<p style="color:#cbd5e1; font-size:0.78rem; line-height:1.35; margin:0 0 12px 0; max-width:340px;">Mujer minera y valiente Palliri, símbolo de lucha e historia en Llallagua.</p>' +
                     '<button type="button" style="margin-top:auto; width:100%; padding:12px 18px; border:none; border-radius:30px; background:linear-gradient(90deg, #22c55e, #4ade80); color:#05140b; font-family:Montserrat,sans-serif; font-weight:800; font-size:0.84rem; letter-spacing:1.5px; cursor:pointer; text-transform:uppercase;">ELEGIR MINERA</button>' +
                 '</div>' +
-
             '</div>' +
             '<div style="color:rgba(224,218,207,0.68); font-size:0.74rem; margin-top:4px;">💡 Puedes cambiar de personaje en cualquier momento presionando la <b>Tecla C</b></div>' +
         '</div>';
@@ -1252,12 +1670,6 @@ window.abrirMonumentoInstantaneo = function(enlaceUrl) {
         document.exitPointerLock();
     }
 
-    var musicaEstabaSonando = false;
-    if (sound && sound.isPlaying) {
-        musicaEstabaSonando = true;
-        sound.pause();
-    }
-
     if (!monumentoIframeOverlay) {
         monumentoIframeOverlay = document.createElement('div');
         monumentoIframeOverlay.id = 'monumento-overlay-instantaneo';
@@ -1301,12 +1713,12 @@ window.abrirMonumentoInstantaneo = function(enlaceUrl) {
 
     var visor = document.getElementById('monumento-iframe-visor');
     if (visor) {
-        visor.dataset.reanudarMusica = musicaEstabaSonando ? '1' : '0';
         visor.src = enlaceUrl;
     }
 
     monumentoIframeOverlay.style.display = 'block';
     monumentoModalActivo = true;
+    sincronizarAudioFondoYSirena();
 
     try {
         history.pushState({ monumentoAbierto: true }, '', '#' + enlaceUrl.replace('.html', ''));
@@ -1318,7 +1730,6 @@ window.cerrarMonumentoInstantaneo = function(desdePopState) {
     monumentoModalActivo = false;
 
     var visor = document.getElementById('monumento-iframe-visor');
-    var reanudar = visor && visor.dataset.reanudarMusica === '1';
     if (visor) {
         visor.src = 'about:blank';
     }
@@ -1326,9 +1737,7 @@ window.cerrarMonumentoInstantaneo = function(desdePopState) {
         monumentoIframeOverlay.style.display = 'none';
     }
 
-    if (reanudar && sound && !sound.isPlaying && sound.buffer) {
-        sound.play();
-    }
+    sincronizarAudioFondoYSirena();
 
     if (!desdePopState && window.location.hash) {
         try {
@@ -1347,22 +1756,8 @@ window.addEventListener('popstate', function() {
 });
 
 // ====================================================
-// OPTIMIZACIÓN DE TEXTURAS Y MATERIALES
+// ESFERAS DE COLISIÓN Y OBSTÁCULOS
 // ====================================================
-function mejorarCalidadMaterial(material) {
-    if (!material) return;
-    var mats = Array.isArray(material) ? material : [material];
-    for (var i = 0; i < mats.length; i++) {
-        var m = mats[i];
-        if (!m) continue;
-        if (m.map) {
-            m.map.anisotropy = maxAnisotropy;
-        }
-        m.shadowSide = null;
-        m.precision = "mediump";
-    }
-}
-
 function prepararEsferaColisionMundial(mesh) {
     if (!mesh || !mesh.geometry) return;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
@@ -1471,7 +1866,7 @@ window.iniciarTourPlaza = function(mostrarUI) {
     _ultimoTextoTour = "";
 
     if (renderer) {
-        renderer.setPixelRatio(0.85);
+        renderer.setPixelRatio(PERFIL_CALIDAD.pixelRatioTour);
     }
 
     characterGroup.visible = personajeYaElegido;
@@ -1490,7 +1885,7 @@ window.terminarTourPlaza = function(omitirSelector) {
     if (tourOverlayEl) tourOverlayEl.style.display = 'none';
 
     if (renderer) {
-        renderer.setPixelRatio(1.0);
+        renderer.setPixelRatio(PERFIL_CALIDAD.pixelRatioJuego);
     }
 
     placeCharacterAndCamera(clock.getElapsedTime());
@@ -1707,7 +2102,6 @@ function actualizarMinimapaRadar(time) {
         });
     }
 
-    // Dibujar Puntos de Video en el Radar (Cuadrados Verde Esmeralda)
     if (window.ESTACIONES_VIDEOS) {
         window.ESTACIONES_VIDEOS.forEach(function(ev) {
             var pv = mundoARadar(ev.zona.x, ev.zona.z, cx, cy);
@@ -1854,7 +2248,7 @@ window.tomarFotoPostal = function() {
 };
 
 // ====================================================
-// HUD DE GUÍA, BOTÓN DE SIRENA (JUNTO A CLIMAS) Y OVERLAY DEL TOUR
+// HUD DE GUÍA, BOTÓN DE SIRENA + LINTERNA Y OVERLAY DEL TOUR
 // ====================================================
 function crearHUDGuia() {
     var viejoHud = document.getElementById('hud-guia-recorrido');
@@ -1894,25 +2288,42 @@ function crearHUDGuia() {
     if (btnSaltar) {
         btnSaltar.addEventListener('click', function(e) {
             e.stopPropagation();
+            musicaFondoDeseada = true;
             inicializarAudioProcedural();
+            sincronizarAudioFondoYSirena();
             window.terminarTourPlaza();
         });
     }
 
-    // 👉 AÑADIR BOTÓN DE SIRENA AL LADO DE DÍA / TARDE / NOCHE
     var contenedorClima = document.querySelector('.clima-botones-container');
-    if (contenedorClima && !document.getElementById('btn-sirena')) {
-        var btnSirena = document.createElement('button');
-        btnSirena.id = 'btn-sirena';
-        btnSirena.type = 'button';
-        btnSirena.className = 'btn-clima';
-        btnSirena.style.borderColor = 'rgba(239, 68, 68, 0.55)';
-        btnSirena.style.color = '#fca5a5';
-        btnSirena.innerHTML = '🚨 Sirena (G)';
-        btnSirena.onclick = function(e) {
-            window.alternarSirena(e);
-        };
-        contenedorClima.appendChild(btnSirena);
+    if (contenedorClima) {
+        if (!document.getElementById('btn-sirena')) {
+            var btnSirena = document.createElement('button');
+            btnSirena.id = 'btn-sirena';
+            btnSirena.type = 'button';
+            btnSirena.className = 'btn-clima';
+            btnSirena.style.borderColor = 'rgba(239, 68, 68, 0.55)';
+            btnSirena.style.color = '#fca5a5';
+            btnSirena.innerHTML = '🚨 Sirena (G)';
+            btnSirena.onclick = function(e) {
+                window.alternarSirena(e);
+            };
+            contenedorClima.appendChild(btnSirena);
+        }
+
+        if (!document.getElementById('btn-linterna')) {
+            var btnLinterna = document.createElement('button');
+            btnLinterna.id = 'btn-linterna';
+            btnLinterna.type = 'button';
+            btnLinterna.className = 'btn-clima';
+            btnLinterna.style.borderColor = 'rgba(250, 204, 21, 0.6)';
+            btnLinterna.style.color = '#fde047';
+            btnLinterna.innerHTML = '🔦 Lámpara (L)';
+            btnLinterna.onclick = function(e) {
+                window.alternarLinternaGuardatojo(e);
+            };
+            contenedorClima.appendChild(btnLinterna);
+        }
     }
 
     var contenedorBotones = document.querySelector('.botones-container');
@@ -1969,6 +2380,7 @@ function crearHUDGuia() {
             '<li><strong>Rueda ratón:</strong> Zoom cámara</li>' +
             '<li><strong>Tecla F:</strong> Interactuar / Historia</li>' +
             '<li><strong>Tecla V:</strong> Ver Video Documental</li>' +
+            '<li><strong>Tecla L:</strong> Lámpara del Guardatojo</li>' +
             '<li><strong>Tecla G:</strong> Sirena Sindical ON/OFF</li>' +
             '<li><strong>Tecla C:</strong> Cambiar Personaje</li>' +
             '<li><strong>Tecla P:</strong> Tomar Foto Postal</li>' +
@@ -2102,7 +2514,6 @@ function construirEstacionesYCamino() {
         storyRingsGroup.add(lineaGuia);
     }
 
-    // 👉 CONSTRUIR LOS 4 ANILLOS VERDE ESMERALDA DE VIDEOS INFORMATIVOS
     if (window.ESTACIONES_VIDEOS) {
         window.ESTACIONES_VIDEOS.forEach(function(ev, vIdx) {
             var yVid = ev.zona.y + 0.18;
@@ -2187,32 +2598,32 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// INICIALIZACIÓN DE LA ESCENA
+// INICIALIZACIÓN DE LA ESCENA (ADAPTATIVA SEGÚN LA PC + CARGA 1 POR 1)
 // ====================================================
 function init() {
+    mostrarHardwareEnSplash();
+
     scene = new THREE.Scene();
     scene.matrixAutoUpdate = false;
     scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.FogExp2(0xa0c4e0, 0.0015);
+    scene.fog = new THREE.FogExp2(0xa0c4e0, ES_CALIDAD_MEDIA ? 0.0016 : 0.0015);
     
-    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.6, 550);
+    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.6, PERFIL_CALIDAD.farCamera);
     camera.position.set(-35, 58, 45);
     camera.lookAt(new THREE.Vector3(-92, 12, -55));
     camera.updateMatrixWorld(true);
 
     scene.add(characterGroup);
 
-    var manager = new THREE.LoadingManager();
-
     renderer = new THREE.WebGLRenderer({ 
         antialias: false, 
         powerPreference: "high-performance",
-        precision: "mediump",
+        precision: PERFIL_CALIDAD.precisionShader,
         stencil: false,
         depth: true
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(0.85);
+    renderer.setPixelRatio(PERFIL_CALIDAD.pixelRatioTour);
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.08; 
     renderer.gammaOutput = true;
@@ -2220,21 +2631,75 @@ function init() {
     renderer.shadowMap.enabled = false;
     document.body.appendChild(renderer.domElement);
 
-    maxAnisotropy = 1;
+    if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
+        maxAnisotropy = Math.min(2, renderer.capabilities.getMaxAnisotropy());
+    } else {
+        maxAnisotropy = 2;
+    }
 
     crearHUDGuia();
+    inicializarLinternaGuardatojo();
+
+    var listener = new THREE.AudioListener();
+    camera.add(listener);
+    sound = new THREE.Audio(listener);
     
-    manager.onProgress = function (url, itemsLoaded, itemsTotal) {
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    scene.add(ambientLight);
+    
+    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.82);
+    scene.add(hemisphereLight);
+    
+    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.35);
+    directionalLight.position.set(60, 140, 80);
+    directionalLight.castShadow = false;
+    directionalLight.updateMatrixWorld(true);
+    scene.add(directionalLight);
+
+    var etiquetasContainer = document.getElementById('etiquetas-container');
+    if (etiquetasContainer) {
+        marcadores.forEach(function(marcador) {
+            var div = document.createElement('div');
+            div.className = 'etiqueta-3d';
+            div.style.left = '0px';
+            div.style.top = '0px';
+            div.style.willChange = 'transform';
+            div.innerText = marcador.texto;
+            div.onclick = function() {
+                window.abrirMonumentoInstantaneo(marcador.enlace);
+            };
+            etiquetasContainer.appendChild(div);
+            marcador.elemento = div;
+        });
+    }
+
+    construirEstacionesYCamino();
+
+    // ====================================================
+    // SISTEMA DE COLA SECUENCIAL (1 POR 1) Y SPLASH CON HARDWARE DETECTADO
+    // ====================================================
+    var cargar = crearGLTFLoaderOptimizado();
+    var colaTareasCarga = [];
+    var totalTareasCarga = 0;
+    var tareasCompletadas = 0;
+
+    function actualizarBarraProgresoSplash(subProgreso) {
         var progressBar = document.getElementById('progress-bar'); 
         var progressText = document.getElementById('progress-text');
-        if (itemsTotal > 0 && progressText) {
-            var porcentaje = Math.round((itemsLoaded / itemsTotal) * 100);
+        if (totalTareasCarga > 0) {
+            var avance = tareasCompletadas + (subProgreso || 0);
+            var porcentaje = Math.min(100, Math.round((avance / totalTareasCarga) * 100));
             if (progressBar) progressBar.style.width = porcentaje + '%';
-            progressText.innerText = porcentaje + '%';
+            if (progressText) progressText.innerText = porcentaje + '%';
         }
-    };
+    }
 
-    manager.onLoad = function () {
+    function finalizarSplashYEmpezarJuego() {
+        var progressBar = document.getElementById('progress-bar'); 
+        var progressText = document.getElementById('progress-text');
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressText) progressText.innerText = '100%';
+
         scene.updateMatrixWorld(true);
 
         if (window.ESTACIONES_VIDEOS && videoRings.length > 0) {
@@ -2248,6 +2713,7 @@ function init() {
             congelarObjetoEstatico(videoRingsGroup);
         }
 
+        // 👉 RECIÉN AQUÍ SE QUITA EL SPLASH CUANDO EL ÚLTIMO MODELO CARGÓ
         var loaderContainer = document.getElementById("loader-container");
         if (loaderContainer) loaderContainer.classList.add("loaded");
 
@@ -2279,7 +2745,9 @@ function init() {
 
         if (pantallaBienvenida) {
             pantallaBienvenida.addEventListener('click', function() {
+                musicaFondoDeseada = true;
                 inicializarAudioProcedural();
+                sincronizarAudioFondoYSirena();
                 window.iniciarTourPlaza(true);
             }, { once: true });
         }
@@ -2287,69 +2755,140 @@ function init() {
         var btnExplorar = document.getElementById('btn-explorar-plaza');
         if (btnExplorar) {
             btnExplorar.onclick = function() {
+                musicaFondoDeseada = true;
                 inicializarAudioProcedural();
+                sincronizarAudioFondoYSirena();
                 window.iniciarTourPlaza(true);
             };
         }
-    };
+    }
 
-    var listener = new THREE.AudioListener();
-    camera.add(listener);
-    sound = new THREE.Audio(listener);
-    var audioLoader = new THREE.AudioLoader(manager);
-    audioLoader.load('assets/mieros.mp3', function(buffer) {
-        sound.setBuffer(buffer);
-        sound.setLoop(true);
-        sound.setVolume(0.28);
-    });
-    
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
-    scene.add(ambientLight);
-    
-    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.82);
-    scene.add(hemisphereLight);
-    
-    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.35);
-    directionalLight.position.set(60, 140, 80);
-    directionalLight.castShadow = false;
-    directionalLight.updateMatrixWorld(true);
-    scene.add(directionalLight);
-
-    var textureLoader = new THREE.TextureLoader(manager);
-    textureLoader.load("imagenes/cielo.jpg", function (texture) {
-        if (THREE.sRGBEncoding) {
-            texture.encoding = THREE.sRGBEncoding;
+    function procesarSiguienteEnCola() {
+        if (colaTareasCarga.length === 0) {
+            finalizarSplashYEmpezarJuego();
+            return;
         }
-        texture.anisotropy = 1;
-        texturasCieloCache["imagenes/cielo.jpg"] = texture;
-        scene.background = texture;
-    });
-    
-    var cargar = new THREE.GLTFLoader(manager);
-    
-    var etiquetasContainer = document.getElementById('etiquetas-container');
-    if (etiquetasContainer) {
-        marcadores.forEach(function(marcador) {
-            var div = document.createElement('div');
-            div.className = 'etiqueta-3d';
-            div.style.left = '0px';
-            div.style.top = '0px';
-            div.style.willChange = 'transform';
-            div.innerText = marcador.texto;
-            div.onclick = function() {
-                window.abrirMonumentoInstantaneo(marcador.enlace);
-            };
-            etiquetasContainer.appendChild(div);
-            marcador.elemento = div;
+
+        var tarea = colaTareasCarga.shift();
+        actualizarBarraProgresoSplash(0);
+
+        if (tarea.tipo === 'textura') {
+            var texLoader = new THREE.TextureLoader();
+            texLoader.load(tarea.url, function(texture) {
+                tarea.onLoad(texture);
+                tareasCompletadas++;
+                setTimeout(procesarSiguienteEnCola, 25);
+            }, undefined, function() {
+                tareasCompletadas++;
+                setTimeout(procesarSiguienteEnCola, 25);
+            });
+            return;
+        }
+
+        if (tarea.tipo === 'audio') {
+            var audioLoader = new THREE.AudioLoader();
+            audioLoader.load(tarea.url, function(buffer) {
+                tarea.onLoad(buffer);
+                tareasCompletadas++;
+                setTimeout(procesarSiguienteEnCola, 25);
+            }, undefined, function() {
+                tareasCompletadas++;
+                setTimeout(procesarSiguienteEnCola, 25);
+            });
+            return;
+        }
+
+        var intentos = 0;
+        var maxIntentos = 3;
+
+        function intentarDescargaGLB() {
+            intentos++;
+            cargar.load(
+                tarea.url,
+                function(gltf) {
+                    try {
+                        tarea.onLoad(gltf);
+                    } catch (errProc) {
+                        console.warn("Error procesando " + tarea.url, errProc);
+                    }
+                    tareasCompletadas++;
+                    setTimeout(procesarSiguienteEnCola, ES_CALIDAD_MEDIA ? 35 : 25);
+                },
+                function(xhr) {
+                    if (xhr && xhr.lengthComputable && xhr.total > 0) {
+                        actualizarBarraProgresoSplash((xhr.loaded / xhr.total) * 0.9);
+                    }
+                },
+                function(error) {
+                    if (intentos < maxIntentos) {
+                        console.warn("Reintentando (" + intentos + "/" + maxIntentos + "): " + tarea.url);
+                        setTimeout(intentarDescargaGLB, 350 * intentos);
+                    } else {
+                        console.error("No se pudo cargar tras " + maxIntentos + " intentos: " + tarea.url, error);
+                        tareasCompletadas++;
+                        setTimeout(procesarSiguienteEnCola, 35);
+                    }
+                }
+            );
+        }
+
+        intentarDescargaGLB();
+    }
+
+    function encolarGLB(url, callbackExito, esGltfCompleto) {
+        colaTareasCarga.push({
+            tipo: 'glb',
+            url: url,
+            onLoad: function(gltf) {
+                if (gltf && gltf.scene) {
+                    gltf.scene.traverse(function(c) {
+                        if (c && c.isMesh) {
+                            c.castShadow = false;
+                            c.receiveShadow = false;
+                            mejorarCalidadMaterial(c.material);
+                        }
+                    });
+                }
+                if (esGltfCompleto) {
+                    callbackExito(gltf);
+                } else {
+                    callbackExito(gltf.scene);
+                }
+            }
         });
     }
 
-    construirEstacionesYCamino();
-    
+    function cargarModeloSeguro(url, callbackExito) {
+        encolarGLB(url, callbackExito, false);
+    }
+
+    // 0. ENCOLAR CIELO Y MÚSICA
+    colaTareasCarga.push({
+        tipo: 'textura',
+        url: "imagenes/cielo.jpg",
+        onLoad: function(texture) {
+            if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
+            comprimirTexturaEnCanvas(texture, PERFIL_CALIDAD.maxCieloDim);
+            texturasCieloCache["imagenes/cielo.jpg"] = texture;
+            scene.background = texture;
+        }
+    });
+
+    colaTareasCarga.push({
+        tipo: 'audio',
+        url: 'assets/mieros.mp3',
+        onLoad: function(buffer) {
+            sound.setBuffer(buffer);
+            sound.setLoop(true);
+            sound.setVolume(0.28);
+            sincronizarAudioFondoYSirena();
+        }
+    });
+
     // ====================================================
     // 1. CARGAR PISO.GLB
     // ====================================================
-    cargar.load("assets/piso.glb", function(gltf) {
+    encolarGLB("assets/piso.glb", function(gltf) {
         plaza = gltf.scene;
         plaza.position.set(0, 0, 0);
         plaza.scale.set(5, 5, 5);
@@ -2368,7 +2907,6 @@ function init() {
             if (obj && obj.isMesh && obj.geometry) {
                 obj.castShadow = false;
                 obj.receiveShadow = false;
-                mejorarCalidadMaterial(obj.material);
                 obj.matrixAutoUpdate = false;
                 obj.updateMatrix();
                 prepararEsferaColisionMundial(obj);
@@ -2386,34 +2924,15 @@ function init() {
             }
         });
         congelarObjetoEstatico(plaza);
-    }, undefined, function(error) {
-        console.log("Error cargando piso.glb:", error);
-    });
+    }, true);
 
     // ====================================================
     // 1.B PRE-CARGAR MODELO BASE DEL MINERO (SIN SOMBRA)
     // ====================================================
-    cargar.load("assets/personaje.glb", function(gltf) {
+    encolarGLB("assets/personaje.glb", function(gltf) {
         aplicarGltfAlPersonaje(gltf, 'minero');
         characterGroup.visible = false;
-    }, undefined, function(err) {
-        console.error("⚠️ Error al cargar assets/personaje.glb:", err);
-    });
-
-    function cargarModeloSeguro(url, callbackExito) {
-        cargar.load(url, function(gltf) {
-            gltf.scene.traverse(function(c) {
-                if (c && c.isMesh) {
-                    c.castShadow = false;
-                    c.receiveShadow = false;
-                    mejorarCalidadMaterial(c.material);
-                }
-            });
-            callbackExito(gltf.scene);
-        }, undefined, function(error) {
-            console.log("Error en modelo: " + url, error);
-        });
-    }
+    }, true);
 
     // ====================================================
     // 2. MONUMENTOS Y PEDESTALES
@@ -2695,6 +3214,10 @@ function init() {
         });
     });
 
+    // Arrancar la cola secuencial 1 por 1
+    totalTareasCarga = colaTareasCarga.length;
+    procesarSiguienteEnCola();
+
     window.addEventListener('resize', onWindowResize, false);
 }
 
@@ -2735,6 +3258,7 @@ function placeCharacterAndCamera(elapsedTime) {
         _cameraLookTarget.lerp(window.camaraHistoriaObjetivo.objetivo, 0.06);
         camera.lookAt(_cameraLookTarget);
         camera.updateMatrixWorld(true);
+        actualizarPosicionLinternaGuardatojo();
         return;
     }
 
@@ -2783,6 +3307,7 @@ function placeCharacterAndCamera(elapsedTime) {
     camera.position.copy(_desiredCamPosTemp);
     camera.lookAt(_targetPointTemp);
     camera.updateMatrixWorld(true);
+    actualizarPosicionLinternaGuardatojo();
 }
 
 var _floorRaycaster = new THREE.Raycaster();
@@ -3113,6 +3638,7 @@ function actualizarTourAereo(delta) {
     camera.position.copy(_tourPosTemp);
     camera.lookAt(_tourLookTemp);
     camera.updateMatrixWorld(true);
+    actualizarPosicionLinternaGuardatojo();
 
     var pct = Math.round(rawT * 100);
     if (tourBarEl && pct !== _ultimoPorcentajeTour) {
@@ -3226,7 +3752,7 @@ function actualizarCullingObjetosPequenos() {
     if (!camera || objetosDetalleLejano.length === 0) return;
     var camX = camera.position.x;
     var camZ = camera.position.z;
-    var maxDistSq = tourActivo ? (95 * 95) : (125 * 125);
+    var maxDistSq = tourActivo ? PERFIL_CALIDAD.cullingTourSq : PERFIL_CALIDAD.cullingJuegoSq;
 
     for (var i = 0; i < objetosDetalleLejano.length; i++) {
         var obj = objetosDetalleLejano[i];
@@ -3237,7 +3763,7 @@ function actualizarCullingObjetosPequenos() {
 }
 
 // ====================================================
-// EVENTOS DE TECLADO (INCLUYE TECLA G = SIRENA, TECLA V = VIDEO)
+// EVENTOS DE TECLADO (G = SIRENA, L = LÁMPARA MINERA, V = VIDEO)
 // ====================================================
 document.addEventListener('keydown', function(e) {
     inicializarAudioProcedural();
@@ -3245,6 +3771,12 @@ document.addEventListener('keydown', function(e) {
     if (e.code === 'KeyG' && !e.repeat) {
         e.preventDefault();
         window.alternarSirena();
+        return;
+    }
+
+    if (e.code === 'KeyL' && !e.repeat && !videoModalActivo && !monumentoModalActivo && !seleccionPersonajeActiva) {
+        e.preventDefault();
+        window.alternarLinternaGuardatojo();
         return;
     }
 
@@ -3349,11 +3881,12 @@ document.addEventListener('pointerlockchange', function() {
 });
 
 window.addEventListener('click', function(e) {
+    musicaFondoDeseada = true;
     inicializarAudioProcedural();
+    sincronizarAudioFondoYSirena();
+
     if (monumentoModalActivo || seleccionPersonajeActiva || videoModalActivo) return;
-    if (sound && !sound.isPlaying && sound.buffer) {
-        sound.play();
-    }
+
     if (renderer && e.target === renderer.domElement && !locked && !window.historiaEnCurso && !tourActivo) {
         renderer.domElement.requestPointerLock();
     }
@@ -3368,6 +3901,41 @@ function onWindowResize() {
 var _frameCounter = 0;
 var _projVec = new THREE.Vector3();
 
+// Monitor de FPS en vivo: si una PC en Calidad Alta baja de 26 FPS sostenidos, pasa suavemente a Calidad Media
+var _fpsMonitorFrames = 0;
+var _fpsMonitorTime = 0;
+var _bajadasFpsConsecutivas = 0;
+
+function monitorearRendimientoEnVivo(rawDelta) {
+    if (ES_CALIDAD_MEDIA || rawDelta <= 0 || rawDelta > 0.5) return;
+    _fpsMonitorFrames++;
+    _fpsMonitorTime += rawDelta;
+
+    if (_fpsMonitorTime >= 2.0) {
+        var fpsPromedio = _fpsMonitorFrames / _fpsMonitorTime;
+        _fpsMonitorFrames = 0;
+        _fpsMonitorTime = 0;
+
+        if (fpsPromedio < 26) {
+            _bajadasFpsConsecutivas++;
+            if (_bajadasFpsConsecutivas >= 2) {
+                ES_CALIDAD_MEDIA = true;
+                PERFIL_CALIDAD.nivel = 'MEDIA';
+                PERFIL_CALIDAD.pixelRatioTour = 0.85;
+                PERFIL_CALIDAD.pixelRatioJuego = 0.90;
+                PERFIL_CALIDAD.cullingTourSq = 90 * 90;
+                PERFIL_CALIDAD.cullingJuegoSq = 120 * 120;
+                if (renderer) {
+                    renderer.setPixelRatio(tourActivo ? PERFIL_CALIDAD.pixelRatioTour : PERFIL_CALIDAD.pixelRatioJuego);
+                }
+                console.log("⚡ Ajuste automático a CALIDAD MEDIA para mantener fluidez.");
+            }
+        } else {
+            _bajadasFpsConsecutivas = 0;
+        }
+    }
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
@@ -3375,7 +3943,10 @@ function animate() {
         return;
     }
 
-    var delta = Math.min(clock.getDelta(), 0.05);
+    var rawDelta = clock.getDelta();
+    monitorearRendimientoEnVivo(rawDelta);
+
+    var delta = Math.min(rawDelta, 0.05);
     var elapsedTime = clock.getElapsedTime();
     _frameCounter++;
 
@@ -3503,6 +4074,7 @@ function animate() {
 
 window.cambiarAtmosfera = function(modo) {
     var texturaRuta = "";
+    modoAtmosferaActual = modo;
 
     if (modo === 'dia') {
         texturaRuta = "imagenes/cielo.jpg";
@@ -3514,6 +4086,11 @@ window.cambiarAtmosfera = function(modo) {
         ambientLight.intensity = 0.85;
         if (scene.fog) scene.fog.color.setHex(0xa0c4e0);
         bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xfffae6); });
+
+        if (linternaActiva && linternaSpotLight && linternaHaloLight) {
+            linternaSpotLight.intensity = 2.2;
+            linternaHaloLight.intensity = 0.7;
+        }
         
     } else if (modo === 'atardecer' || modo === 'tarde') {
         texturaRuta = "imagenes/atardecer.jpg"; 
@@ -3525,17 +4102,32 @@ window.cambiarAtmosfera = function(modo) {
         ambientLight.intensity = 0.65;
         if (scene.fog) scene.fog.color.setHex(0xc06030);
         bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffcc55); });
+
+        if (linternaActiva && linternaSpotLight && linternaHaloLight) {
+            linternaSpotLight.intensity = 2.6;
+            linternaHaloLight.intensity = 0.85;
+        }
         
     } else if (modo === 'noche' || modo === 'nublado') {
         texturaRuta = "imagenes/noche.png";
-        directionalLight.color.setHex(0x88aaee);
-        directionalLight.intensity = 0.55;
-        hemisphereLight.color.setHex(0x334477);
-        hemisphereLight.groundColor.setHex(0x111a2e);
-        ambientLight.color.setHex(0x2a3b66);
-        ambientLight.intensity = 0.55;
-        if (scene.fog) scene.fog.color.setHex(0x0a0a1a);
+        directionalLight.color.setHex(0x6688cc);
+        directionalLight.intensity = 0.32;
+        hemisphereLight.color.setHex(0x223355);
+        hemisphereLight.groundColor.setHex(0x0a101d);
+        ambientLight.color.setHex(0x1c2847);
+        ambientLight.intensity = 0.35;
+        if (scene.fog) scene.fog.color.setHex(0x060812);
         bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffe066); });
+
+        if (linternaActiva && linternaSpotLight && linternaHaloLight) {
+            linternaSpotLight.intensity = 3.8;
+            linternaHaloLight.intensity = 1.35;
+        } else if (!linternaActiva) {
+            mostrarAvisoLinternaGuardatojo(
+                '🔦 Modo Noche: Presiona <kbd style="background:#facc15;color:#000;padding:2px 9px;border-radius:6px;margin:0 4px;">L</kbd> para encender tu lámpara minera',
+                6000
+            );
+        }
     } else {
         return;
     }
@@ -3550,7 +4142,7 @@ window.cambiarAtmosfera = function(modo) {
         if (THREE.sRGBEncoding) {
             texture.encoding = THREE.sRGBEncoding;
         }
-        texture.anisotropy = 1;
+        comprimirTexturaEnCanvas(texture, PERFIL_CALIDAD.maxCieloDim);
         texturasCieloCache[texturaRuta] = texture;
         scene.background = texture;
     });
@@ -3578,6 +4170,7 @@ if (btnSalir) {
     btnSalir.addEventListener("click", function () {
         detenerSonidoPasos();
         if (audioSirenaEl) audioSirenaEl.pause();
+        if (audioVientoEl) audioVientoEl.pause();
         sessionStorage.removeItem("historiaCompletada");
         sessionStorage.removeItem("estadoJugadorPlaza");
         sessionStorage.removeItem("personajeElegidoPlaza");
