@@ -1,7 +1,8 @@
 // ====================================================
 // MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
-// VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA NÍTIDA / CALIDAD ALTA)
-// + AVISO DE HARDWARE DETECTADO EN LA PANTALLA DE CARGA (SPLASH)
+// VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA EQUILIBRADA / CALIDAD ALTA)
+// + FILTRO EXACTO esIntelHD4000OInferior (HD 4400/4600/520/620 VAN A ALTA)
+// + LUCES EN POSTES IGUALES EN ALTA Y MEDIA + ILUMINACIÓN EQUILIBRADA (SIN SATURAR NI OSCURECER)
 // + CARGA SECUENCIAL 1 POR 1 (ANTI ERR_HTTP2) + SOPORTE DRACO
 // + VIDEOS INFORMATIVOS + SIRENA SINDICAL (G) + LÁMPARA MINERA (L)
 // ====================================================
@@ -21,16 +22,17 @@ var PERFIL_CALIDAD = {
     nivel: 'ALTA',
     etiquetaSplash: '🖥️ Hardware detectado • Gráficos: CALIDAD ALTA',
     gpuNombreCorto: '',
-    pixelRatioTour: 0.90,
+    pixelRatioTour: 0.95,
     pixelRatioJuego: 1.0,
-    precisionShader: 'mediump',
-    comprimirTexturas: false, // En Calidad Alta mantiene las texturas originales intactas
+    precisionShader: 'highp',
+    comprimirTexturas: false,
     maxTexDim: 2048,
     maxCieloDim: 2048,
+    maxNormalDim: 1024,
     mantenerNormalMaps: true,
-    anisotropiaMax: 2,
-    cullingTourSq: 95 * 95,
-    cullingJuegoSq: 130 * 130,
+    anisotropiaMax: 4,
+    cullingTourSq: 115 * 115,
+    cullingJuegoSq: 145 * 145,
     farCamera: 550
 };
 
@@ -74,11 +76,9 @@ function mostrarHardwareEnSplash() {
 }
 
 function detectarPerfilHardware() {
-    var cores = navigator.hardwareConcurrency || 4;
-    var ram = navigator.deviceMemory || 8; // Si el navegador no lo soporta, asumimos 8 GB
     var esMovil = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
-    var gpuIntegradaBasica = false;
-    var gpuDedicadaPotente = false;
+    var esIntelHD4000OInferior = false;
+    var gpuDedicadaOModerna = false;
     var nombreGpuDetectado = '';
 
     try {
@@ -91,52 +91,58 @@ function detectarPerfilHardware() {
                 nombreGpuDetectado = limpiarNombreGPU(rendererRaw);
                 var rendererStr = rendererRaw.toLowerCase();
 
-                // 1. Detectar si tiene tarjeta gráfica dedicada potente (NVIDIA RTX / GTX, Radeon RX, Apple M1/M2/M3/M4)
-                if (/nvidia|geforce|rtx|gtx|radeon rx|radeon pro|apple m[1-9]/i.test(rendererStr)) {
-                    gpuDedicadaPotente = true;
+                // 1. Detectar GPUs dedicadas o integradas modernas (Intel HD 4400, 4600, 500+, 600+, UHD, Iris, NVIDIA, AMD, Apple)
+                if (/nvidia|geforce|rtx|gtx|radeon|amd|iris|uhd|apple m[1-9]|hd graphics (4[46]00|5\d\d|6\d\d|p\d+)/i.test(rendererStr)) {
+                    gpuDedicadaOModerna = true;
                 }
 
-                // 2. Detectar si es gráfica integrada básica
-                if (!gpuDedicadaPotente && /intel\(r\) hd|intel\(r\) uhd|celeron|pentium|mesa|llvmpipe|swiftshader|mali-|adreno \(tm\) [2345]|powervr/i.test(rendererStr)) {
-                    gpuIntegradaBasica = true;
+                // 2. Filtro exacto: SOLO Intel HD 4000 o modelos anteriores (2000, 2500, 3000) o gráficos muy antiguos
+                if (!gpuDedicadaOModerna && (
+                    /hd graphics\s*(2000|2500|3000|4000)\b/i.test(rendererStr) ||
+                    /intel\(r\)\s*hd graphics\b(?!\s*(4[246]00|5\d\d|6\d\d))/i.test(rendererStr) ||
+                    /celeron|pentium|gma|mesa|llvmpipe|swiftshader|mali-4|adreno \(tm\) [23]/i.test(rendererStr)
+                )) {
+                    esIntelHD4000OInferior = true;
                 }
             }
         }
     } catch (e) {}
 
-    // Si tiene una NVIDIA GeForce / RTX dedicada (y no es celular), va directo a CALIDAD ALTA sin importar RAM/Cores
-    if (!gpuDedicadaPotente && (esMovil || cores <= 4 || ram <= 4 || gpuIntegradaBasica)) {
+    // 👉 CALIDAD MEDIA (Un poco más ligera para dar mayor fluidez en Intel HD 4000, pero manteniendo nitidez y luces)
+    if (esIntelHD4000OInferior || (esMovil && !gpuDedicadaOModerna)) {
         ES_CALIDAD_MEDIA = true;
         PERFIL_CALIDAD = {
             nivel: 'MEDIA',
             gpuNombreCorto: nombreGpuDetectado,
-            pixelRatioTour: 0.85,
-            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 0.92),
+            pixelRatioTour: 0.86,
+            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 0.90),
             precisionShader: 'mediump',
             comprimirTexturas: true,
-            maxTexDim: 1024,
+            maxTexDim: 1280,
             maxCieloDim: 1536,
+            maxNormalDim: 768,
             mantenerNormalMaps: true,
             anisotropiaMax: 2,
-            cullingTourSq: 90 * 90,
-            cullingJuegoSq: 120 * 120,
-            farCamera: 520
+            cullingTourSq: 95 * 95,
+            cullingJuegoSq: 125 * 125,
+            farCamera: 525
         };
     } else {
-        // 👉 MODO PARA NVIDIA RTX 3050+ Y PCs DE GAMA ALTA
+        // 👉 CALIDAD ALTA (Intel HD 4400/4600/520/620/UHD/Iris, AMD Radeon y NVIDIA GeForce/RTX)
         ES_CALIDAD_MEDIA = false;
         PERFIL_CALIDAD = {
             nivel: 'ALTA',
             gpuNombreCorto: nombreGpuDetectado,
             pixelRatioTour: 1.0,
-            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 1.25), // Aprovecha pantallas FullHD/2K con total nitidez
+            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 1.15),
             precisionShader: 'highp',
             comprimirTexturas: false,
             maxTexDim: 2048,
             maxCieloDim: 2048,
+            maxNormalDim: 1024,
             mantenerNormalMaps: true,
-            anisotropiaMax: 4, // Mayor nitidez en el piso de la plaza visto en diagonal
-            cullingTourSq: 110 * 110,
+            anisotropiaMax: 4,
+            cullingTourSq: 115 * 115,
             cullingJuegoSq: 145 * 145,
             farCamera: 550
         };
@@ -156,6 +162,44 @@ var texturasCieloCache = {};
 var modoAtmosferaActual = 'dia';
 
 // ====================================================
+// 💡 CONTROL DE LUCES DE LOS POSTES (IGUAL EN CALIDAD ALTA Y MEDIA)
+// ====================================================
+function actualizarIntensidadLucesPostes(modo) {
+    var intensidadObjetivo = 0;
+    var colorLuz = 0xffe29a;
+    var colorBulbo = 0xfffae6;
+
+    if (modo === 'dia') {
+        intensidadObjetivo = 0.25;
+        colorLuz = 0xfff3d1;
+        colorBulbo = 0xfffae6;
+    } else if (modo === 'atardecer' || modo === 'tarde') {
+        intensidadObjetivo = 1.15;
+        colorLuz = 0xffd27d;
+        colorBulbo = 0xffe082;
+    } else if (modo === 'noche' || modo === 'nublado') {
+        intensidadObjetivo = 1.85;
+        colorLuz = 0xffe49e;
+        colorBulbo = 0xfff099;
+    }
+
+    for (var i = 0; i < lucesPostes.length; i++) {
+        var lp = lucesPostes[i];
+        if (lp) {
+            lp.color.setHex(colorLuz);
+            lp.intensity = intensidadObjetivo;
+        }
+    }
+
+    for (var j = 0; j < bulbosPostes.length; j++) {
+        var b = bulbosPostes[j];
+        if (b && b.material) {
+            b.material.color.setHex(colorBulbo);
+        }
+    }
+}
+
+// ====================================================
 // 🔦 VARIABLES DE LA LINTERNA DEL GUARDATOJO (TECLA L)
 // ====================================================
 var linternaSpotLight = null;
@@ -168,7 +212,7 @@ var _avisoLinternaTimer = null;
 // Variables para el Selector de Personaje (Minero / Minera)
 var seleccionPersonajeActiva = false;
 var personajeYaElegido = false;
-var tipoPersonajeActual = 'minero'; // 'minero' o 'minera'
+var tipoPersonajeActual = 'minero';
 var selectorPersonajeModalEl = null;
 var visoresPreviewInicializados = false;
 
@@ -179,14 +223,14 @@ var previewModels = { minero: null, minera: null };
 var previewMixers = { minero: null, minera: null };
 var previewCanvasCtx = { minero: null, minera: null };
 
-// 👉 RUTAS DE LOS MODELOS 3D DE TUS PERSONAJES (CON VARIANTES PARA GITHUB PAGES):
+// 👉 RUTAS DE LOS MODELOS 3D DE TUS PERSONAJES:
 var MODELOS_PERSONAJES = {
     minero: ["assets/personaje.glb", "assets/Personaje.glb", "assets/minero.glb", "assets/Minero.glb"],
     minera: ["assets/minera.glb", "assets/Minera.glb", "assets/palliri.glb", "assets/Palliri.glb"]
 };
 
 // ====================================================
-// 🎬 CONFIGURACIÓN DE LOS 4 PUNTOS DE VIDEOS INFORMATIVOS CORREGIDOS
+// 🎬 CONFIGURACIÓN DE LOS 4 PUNTOS DE VIDEOS INFORMATIVOS
 // ====================================================
 window.ESTACIONES_VIDEOS = [
     {
@@ -629,8 +673,8 @@ window.alternarLinternaGuardatojo = function(e) {
     if (linternaSpotLight && linternaHaloLight) {
         if (linternaActiva) {
             var esNoche = (modoAtmosferaActual === 'noche' || modoAtmosferaActual === 'nublado');
-            linternaSpotLight.intensity = esNoche ? 3.8 : 2.2;
-            linternaHaloLight.intensity = esNoche ? 1.35 : 0.7;
+            linternaSpotLight.intensity = esNoche ? 3.2 : 2.0;
+            linternaHaloLight.intensity = esNoche ? 1.2 : 0.65;
             mostrarAvisoLinternaGuardatojo('🔦 Lámpara minera del guardatojo <b style="color:#4ade80;">ENCENDIDA</b>', 2400);
         } else {
             linternaSpotLight.intensity = 0;
@@ -802,7 +846,7 @@ var marcadores = [
 ];
 
 // ====================================================
-// 🎬 VENTANA MODAL REPRODUCTORA DE VIDEOS (PAUSA Y REANUDA MÚSICA + VIENTO)
+// 🎬 VENTANA MODAL REPRODUCTORA DE VIDEOS
 // ====================================================
 function crearModalVideoInformativo() {
     if (videoModalOverlayEl) return;
@@ -953,7 +997,7 @@ window.cerrarVideoPunto = function() {
 };
 
 // ====================================================
-// GESTIÓN ADAPTATIVA DE TEXTURAS, MATERIALES Y DRACO (CALIDAD MEDIA Y ALTA)
+// GESTIÓN ADAPTATIVA DE TEXTURAS, MATERIALES Y DRACO
 // ====================================================
 var _dracoLoaderGlobal = null;
 var _texturasOptimizadasCache = new WeakMap();
@@ -1006,7 +1050,6 @@ function comprimirTexturaEnCanvas(tex, maxDim) {
         } catch (e) {}
     }
 
-    // Mantiene mipmaps y anisotropía en Calidad Media para que las texturas se vean limpias y nítidas
     tex.anisotropy = maxAnisotropy;
 }
 
@@ -1017,27 +1060,35 @@ function mejorarCalidadMaterial(material) {
         var m = mats[i];
         if (!m) continue;
 
+        // Evita que los materiales metálicos oscurezcan los monumentos o se vean saturados
+        if (typeof m.metalness === 'number' && m.metalness > 0.35) {
+            m.metalness = 0.25;
+        }
+        if (typeof m.roughness === 'number' && m.roughness < 0.35) {
+            m.roughness = 0.45;
+        }
+
         if (ES_CALIDAD_MEDIA) {
-            // CALIDAD MEDIA: Texturas a 1024px, conserva normalMap y precisión mediump
+            // CALIDAD MEDIA REDUCIDA UN POCO: Texturas a 1280px, conserva normalMap a 768px y libera mapas extra
             if (m.map) {
                 comprimirTexturaEnCanvas(m.map, PERFIL_CALIDAD.maxTexDim);
             }
             if (m.normalMap) {
-                comprimirTexturaEnCanvas(m.normalMap, 512);
+                comprimirTexturaEnCanvas(m.normalMap, PERFIL_CALIDAD.maxNormalDim || 768);
             }
             if (m.roughnessMap) { m.roughnessMap.dispose(); m.roughnessMap = null; }
             if (m.metalnessMap) { m.metalnessMap.dispose(); m.metalnessMap = null; }
             if (m.aoMap) { m.aoMap.dispose(); m.aoMap = null; }
             m.shadowSide = null;
-            m.precision = "mediump";
+            m.precision = PERFIL_CALIDAD.precisionShader;
             m.needsUpdate = true;
         } else {
-            // CALIDAD ALTA: Original completa
+            // CALIDAD ALTA: Texturas originales intactas
             if (m.map) {
                 m.map.anisotropy = maxAnisotropy;
             }
             m.shadowSide = null;
-            m.precision = "mediump";
+            m.precision = PERFIL_CALIDAD.precisionShader;
         }
     }
 }
@@ -1152,7 +1203,7 @@ function obtenerRendererPreviewCompartido(w, h) {
             powerPreference: "high-performance",
             precision: PERFIL_CALIDAD.precisionShader
         });
-        _offscreenPreviewRenderer.setPixelRatio(ES_CALIDAD_MEDIA ? 0.92 : 1.0);
+        _offscreenPreviewRenderer.setPixelRatio(ES_CALIDAD_MEDIA ? 0.90 : 1.0);
         _offscreenPreviewRenderer.gammaOutput = true;
         _offscreenPreviewRenderer.gammaFactor = 2.2;
     }
@@ -1176,11 +1227,11 @@ function inicializarVisorPreview3D(tipo, canvasId) {
     var amb = new THREE.AmbientLight(0xffffff, 1.15);
     pScene.add(amb);
 
-    var dirFront = new THREE.DirectionalLight(0xfff4d6, 1.45);
+    var dirFront = new THREE.DirectionalLight(0xfff4d6, 1.35);
     dirFront.position.set(5, 12, 18);
     pScene.add(dirFront);
 
-    var dirRim = new THREE.DirectionalLight(0x4ade80, 0.65);
+    var dirRim = new THREE.DirectionalLight(0x4ade80, 0.55);
     dirRim.position.set(-8, 8, -12);
     pScene.add(dirRim);
 
@@ -1538,7 +1589,6 @@ function actualizarAnimacionMinero(delta, isWalking, isRunning) {
     }
 }
 
-// 👉 PERSONAJE SIN SOMBRA (castShadow = false, receiveShadow = false)
 function aplicarGltfAlPersonaje(gltf, tipo) {
     while (characterGroup.children.length > 0) {
         characterGroup.remove(characterGroup.children[0]);
@@ -1905,7 +1955,7 @@ window.terminarTourPlaza = function(omitirSelector) {
 };
 
 // ====================================================
-// 1. MINIMAPA / RADAR 2D INTERACTIVO (INCLUYE PUNTOS DE VIDEO VERDE ESMERALDA)
+// 1. MINIMAPA / RADAR 2D INTERACTIVO
 // ====================================================
 function mundoARadar(wx, wz, cx, cy) {
     var dx = wx - player.position.x;
@@ -2598,15 +2648,15 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// INICIALIZACIÓN DE LA ESCENA (ADAPTATIVA SEGÚN LA PC + CARGA 1 POR 1)
+// INICIALIZACIÓN DE LA ESCENA (ILUMINACIÓN EQUILIBRADA Y LUCES EN AMBAS CALIDADES)
 // ====================================================
 function init() {
     mostrarHardwareEnSplash();
 
     scene = new THREE.Scene();
     scene.matrixAutoUpdate = false;
-    scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.FogExp2(0xa0c4e0, ES_CALIDAD_MEDIA ? 0.0016 : 0.0015);
+    scene.background = new THREE.Color(0x9bc7e6);
+    scene.fog = new THREE.FogExp2(0xb8d4ea, ES_CALIDAD_MEDIA ? 0.0013 : 0.0012);
     
     camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.6, PERFIL_CALIDAD.farCamera);
     camera.position.set(-35, 58, 45);
@@ -2625,14 +2675,14 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(PERFIL_CALIDAD.pixelRatioTour);
     renderer.toneMapping = THREE.LinearToneMapping;
-    renderer.toneMappingExposure = 1.08; 
+    renderer.toneMappingExposure = 1.02; 
     renderer.gammaOutput = true;
-    renderer.gammaFactor = 2.2;
+    renderer.gammaFactor = 2.15;
     renderer.shadowMap.enabled = false;
     document.body.appendChild(renderer.domElement);
 
     if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
-        maxAnisotropy = Math.min(2, renderer.capabilities.getMaxAnisotropy());
+        maxAnisotropy = Math.min(PERFIL_CALIDAD.anisotropiaMax, renderer.capabilities.getMaxAnisotropy());
     } else {
         maxAnisotropy = 2;
     }
@@ -2644,17 +2694,23 @@ function init() {
     camera.add(listener);
     sound = new THREE.Audio(listener);
     
-    ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    ambientLight = new THREE.AmbientLight(0xf7f9fc, 0.96);
     scene.add(ambientLight);
     
-    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x2d1a0e, 0.82);
+    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x6e655f, 0.85);
     scene.add(hemisphereLight);
     
-    directionalLight = new THREE.DirectionalLight(0xffe8cc, 1.35);
+    directionalLight = new THREE.DirectionalLight(0xfff5e4, 1.08);
     directionalLight.position.set(60, 140, 80);
     directionalLight.castShadow = false;
     directionalLight.updateMatrixWorld(true);
     scene.add(directionalLight);
+
+    directionalLight2 = new THREE.DirectionalLight(0xdbeafe, 0.42);
+    directionalLight2.position.set(-90, 95, -90);
+    directionalLight2.castShadow = false;
+    directionalLight2.updateMatrixWorld(true);
+    scene.add(directionalLight2);
 
     var etiquetasContainer = document.getElementById('etiquetas-container');
     if (etiquetasContainer) {
@@ -2713,7 +2769,6 @@ function init() {
             congelarObjetoEstatico(videoRingsGroup);
         }
 
-        // 👉 RECIÉN AQUÍ SE QUITA EL SPLASH CUANDO EL ÚLTIMO MODELO CARGÓ
         var loaderContainer = document.getElementById("loader-container");
         if (loaderContainer) loaderContainer.classList.add("loaded");
 
@@ -2927,7 +2982,7 @@ function init() {
     }, true);
 
     // ====================================================
-    // 1.B PRE-CARGAR MODELO BASE DEL MINERO (SIN SOMBRA)
+    // 1.B PRE-CARGAR MODELO BASE DEL MINERO
     // ====================================================
     encolarGLB("assets/personaje.glb", function(gltf) {
         aplicarGltfAlPersonaje(gltf, 'minero');
@@ -2964,24 +3019,32 @@ function init() {
     });
     
     // ====================================================
-    // 3. POSTES DE ALUMBRADO
+    // 3. POSTES DE ALUMBRADO (CON LUZ ACTIVA EN CALIDAD ALTA Y EN CALIDAD MEDIA)
     // ====================================================
     cargarModeloSeguro("assets/poste.glb", function(modeloBase) {
         modeloBase.scale.set(8.5, 8.5, 8.5);
-        var geometriaEsfera = new THREE.SphereGeometry(0.85, 6, 6);
+        var geometriaEsfera = new THREE.SphereGeometry(0.85, 8, 8);
         var materialEsfera = new THREE.MeshBasicMaterial({ color: 0xfffae6 });
 
         function crearPosteConLuz(x, y, z) {
             var posteClonado = modeloBase.clone();
-            var bolitaLuz = new THREE.Mesh(geometriaEsfera, materialEsfera);
+            var bolitaLuz = new THREE.Mesh(geometriaEsfera, materialEsfera.clone());
             bolitaLuz.position.set(0, 18, 0);
+
+            var luzFarola = new THREE.PointLight(0xffe29a, 0.25, 42, 1.6);
+            luzFarola.position.set(0, 17.5, 0);
+            luzFarola.castShadow = false;
+
             var grupoPoste = new THREE.Group();
             grupoPoste.add(posteClonado);
             grupoPoste.add(bolitaLuz);
+            grupoPoste.add(luzFarola);
             grupoPoste.position.set(x, y, z);
             scene.add(grupoPoste);
             congelarObjetoEstatico(grupoPoste);
+
             bulbosPostes.push(bolitaLuz);
+            lucesPostes.push(luzFarola);
 
             registrarParaColision(posteClonado, true);
             agregarObstaculoCircular(x, z, 1.35);
@@ -2991,6 +3054,8 @@ function init() {
         crearPosteConLuz(-52, 7, -65); crearPosteConLuz(-52, 7, -95); crearPosteConLuz(-25, 1.4, 79);
         crearPosteConLuz(-89.5, 7, -93.5); crearPosteConLuz(-89, 7, -117); crearPosteConLuz(-52, 7, -120);
         crearPosteConLuz(-130, 7, -150); crearPosteConLuz(-135, 7, -103); crearPosteConLuz(-52, 7, -150);
+
+        actualizarIntensidadLucesPostes(modoAtmosferaActual);
     });
 
     // ====================================================
@@ -3901,7 +3966,7 @@ function onWindowResize() {
 var _frameCounter = 0;
 var _projVec = new THREE.Vector3();
 
-// Monitor de FPS en vivo: si una PC en Calidad Alta baja de 26 FPS sostenidos, pasa suavemente a Calidad Media
+// Monitor de FPS en vivo
 var _fpsMonitorFrames = 0;
 var _fpsMonitorTime = 0;
 var _bajadasFpsConsecutivas = 0;
@@ -3911,24 +3976,24 @@ function monitorearRendimientoEnVivo(rawDelta) {
     _fpsMonitorFrames++;
     _fpsMonitorTime += rawDelta;
 
-    if (_fpsMonitorTime >= 2.0) {
+    if (_fpsMonitorTime >= 2.5) {
         var fpsPromedio = _fpsMonitorFrames / _fpsMonitorTime;
         _fpsMonitorFrames = 0;
         _fpsMonitorTime = 0;
 
-        if (fpsPromedio < 26) {
+        if (fpsPromedio < 22) {
             _bajadasFpsConsecutivas++;
             if (_bajadasFpsConsecutivas >= 2) {
                 ES_CALIDAD_MEDIA = true;
                 PERFIL_CALIDAD.nivel = 'MEDIA';
-                PERFIL_CALIDAD.pixelRatioTour = 0.85;
+                PERFIL_CALIDAD.pixelRatioTour = 0.86;
                 PERFIL_CALIDAD.pixelRatioJuego = 0.90;
-                PERFIL_CALIDAD.cullingTourSq = 90 * 90;
-                PERFIL_CALIDAD.cullingJuegoSq = 120 * 120;
+                PERFIL_CALIDAD.cullingTourSq = 95 * 95;
+                PERFIL_CALIDAD.cullingJuegoSq = 125 * 125;
                 if (renderer) {
                     renderer.setPixelRatio(tourActivo ? PERFIL_CALIDAD.pixelRatioTour : PERFIL_CALIDAD.pixelRatioJuego);
                 }
-                console.log("⚡ Ajuste automático a CALIDAD MEDIA para mantener fluidez.");
+                console.log("⚡ Ajuste suave a CALIDAD MEDIA (luces activas mantenidas).");
             }
         } else {
             _bajadasFpsConsecutivas = 0;
@@ -4072,56 +4137,89 @@ function animate() {
     }
 }
 
+// ====================================================
+// 🌤️ CAMBIO DE ATMÓSFERA EQUILIBRADO (NI MUY OSCURO NI SATURADO + LUCES EN MEDIA Y ALTA)
+// ====================================================
 window.cambiarAtmosfera = function(modo) {
     var texturaRuta = "";
     modoAtmosferaActual = modo;
 
     if (modo === 'dia') {
         texturaRuta = "imagenes/cielo.jpg";
-        directionalLight.color.setHex(0xffe8cc);
-        directionalLight.intensity = 1.35;
+        if (renderer) renderer.toneMappingExposure = 1.02;
+        directionalLight.color.setHex(0xfff5e4);
+        directionalLight.intensity = 1.08;
+        if (directionalLight2) {
+            directionalLight2.color.setHex(0xdbeafe);
+            directionalLight2.intensity = 0.42;
+        }
         hemisphereLight.color.setHex(0xffffff);
-        hemisphereLight.groundColor.setHex(0x2d1a0e);
-        ambientLight.color.setHex(0xffffff);
-        ambientLight.intensity = 0.85;
-        if (scene.fog) scene.fog.color.setHex(0xa0c4e0);
-        bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xfffae6); });
+        hemisphereLight.groundColor.setHex(0x6e655f);
+        hemisphereLight.intensity = 0.85;
+        ambientLight.color.setHex(0xf7f9fc);
+        ambientLight.intensity = 0.96;
+        if (scene.fog) {
+            scene.fog.color.setHex(0xb8d4ea);
+            scene.fog.density = ES_CALIDAD_MEDIA ? 0.0013 : 0.0012;
+        }
+
+        actualizarIntensidadLucesPostes('dia');
 
         if (linternaActiva && linternaSpotLight && linternaHaloLight) {
-            linternaSpotLight.intensity = 2.2;
-            linternaHaloLight.intensity = 0.7;
+            linternaSpotLight.intensity = 2.0;
+            linternaHaloLight.intensity = 0.65;
         }
         
     } else if (modo === 'atardecer' || modo === 'tarde') {
-        texturaRuta = "imagenes/atardecer.jpg"; 
-        directionalLight.color.setHex(0xff7722);
-        directionalLight.intensity = 1.05;
-        hemisphereLight.color.setHex(0xff9944);
-        hemisphereLight.groundColor.setHex(0x3a1e12);
-        ambientLight.color.setHex(0xff8844);
-        ambientLight.intensity = 0.65;
-        if (scene.fog) scene.fog.color.setHex(0xc06030);
-        bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffcc55); });
+        texturaRuta = "imagenes/atardecer.jpg";
+        if (renderer) renderer.toneMappingExposure = 1.04;
+        directionalLight.color.setHex(0xffc285);
+        directionalLight.intensity = 0.98;
+        if (directionalLight2) {
+            directionalLight2.color.setHex(0xc7d2fe);
+            directionalLight2.intensity = 0.40;
+        }
+        hemisphereLight.color.setHex(0xffe0b5);
+        hemisphereLight.groundColor.setHex(0x5c4b43);
+        hemisphereLight.intensity = 0.82;
+        ambientLight.color.setHex(0xffe6cc);
+        ambientLight.intensity = 0.85;
+        if (scene.fog) {
+            scene.fog.color.setHex(0xd8a47f);
+            scene.fog.density = ES_CALIDAD_MEDIA ? 0.00135 : 0.00125;
+        }
+
+        actualizarIntensidadLucesPostes('atardecer');
 
         if (linternaActiva && linternaSpotLight && linternaHaloLight) {
-            linternaSpotLight.intensity = 2.6;
-            linternaHaloLight.intensity = 0.85;
+            linternaSpotLight.intensity = 2.4;
+            linternaHaloLight.intensity = 0.8;
         }
         
     } else if (modo === 'noche' || modo === 'nublado') {
         texturaRuta = "imagenes/noche.png";
-        directionalLight.color.setHex(0x6688cc);
-        directionalLight.intensity = 0.32;
-        hemisphereLight.color.setHex(0x223355);
-        hemisphereLight.groundColor.setHex(0x0a101d);
-        ambientLight.color.setHex(0x1c2847);
-        ambientLight.intensity = 0.35;
-        if (scene.fog) scene.fog.color.setHex(0x060812);
-        bulbosPostes.forEach(function(b) { if (b.material) b.material.color.setHex(0xffe066); });
+        if (renderer) renderer.toneMappingExposure = 1.12;
+        directionalLight.color.setHex(0x9cb8e8);
+        directionalLight.intensity = 0.68;
+        if (directionalLight2) {
+            directionalLight2.color.setHex(0x7c98c8);
+            directionalLight2.intensity = 0.38;
+        }
+        hemisphereLight.color.setHex(0x6b82ab);
+        hemisphereLight.groundColor.setHex(0x364156);
+        hemisphereLight.intensity = 0.78;
+        ambientLight.color.setHex(0x586c91);
+        ambientLight.intensity = 0.76;
+        if (scene.fog) {
+            scene.fog.color.setHex(0x1b263b);
+            scene.fog.density = ES_CALIDAD_MEDIA ? 0.0012 : 0.0011;
+        }
+
+        actualizarIntensidadLucesPostes('noche');
 
         if (linternaActiva && linternaSpotLight && linternaHaloLight) {
-            linternaSpotLight.intensity = 3.8;
-            linternaHaloLight.intensity = 1.35;
+            linternaSpotLight.intensity = 3.2;
+            linternaHaloLight.intensity = 1.2;
         } else if (!linternaActiva) {
             mostrarAvisoLinternaGuardatojo(
                 '🔦 Modo Noche: Presiona <kbd style="background:#facc15;color:#000;padding:2px 9px;border-radius:6px;margin:0 4px;">L</kbd> para encender tu lámpara minera',
