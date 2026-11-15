@@ -3093,7 +3093,7 @@ function init() {
         registrarParaColision(est3, true);
         agregarObstaculoCircular(-74, -38, 2.4);
     });
-    cargarModeloEnSplash("assets/Palliri.glb", function(est4) { 
+    cargarModeloEnSplash("assets/palliriplz.glb", function(est4) { 
         est4.scale.set(4, 4, 4); est4.position.set(-78, 11, -74); est4.rotation.set(0, Math.PI / 2, 0); scene.add(est4); 
         registrarParaColision(est4, true);
         agregarObstaculoCircular(-78, -74, 3.0);
