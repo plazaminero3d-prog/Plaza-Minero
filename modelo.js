@@ -1,9 +1,11 @@
 // ====================================================
 // MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
-// VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA EN LAPTOPS BAJA/MEDIA | ALTA SOLO EN GAMA ALTA)
-// + CARGA 100% SIMULTÁNEA TOTAL EN EL SPLASH (TODOS LOS OBJETOS + PERSONAJES + CIELOS A LA VEZ)
-// + CACHE EN RAM DE MODELOS + DRACO WASM + PRECOMPILACIÓN GPU
-// + POSTES SIN LUCES DINÁMICAS (MÁXIMO RENDIMIENTO) + ILUMINACIÓN SUAVIZADA
+// VERSIÓN ADAPTATIVA INTELIGENTE + PROTECCIÓN ANTI-CRASH WEBGL (INTEL HD 4000)
+// + MÓVILES Y LAPTOPS BAJA/MEDIA -> CALIDAD MEDIA ÍNTEGRA (POTENCIA DE 2 EN RAM)
+// + EQUIPOS GAMA ALTA -> CALIDAD ALTA
+// + FASE 1 EN SPLASH: PISO + CIELO + MINERO + MINERA + 5 MONUMENTOS + BARANDASPLAZA + ARBOL + POSTES + SILLAGOMA
+// + FASE 2 DESPUÉS DEL SPLASH: CARGA EN SEGUNDO PLANO DEL RESTO DE OBJETOS Y AUDIO
+// + CERO SEGUNDO CONTEXTO WEBGL (VISORES USAN EL MISMO RENDERER PRINCIPAL)
 // + VIDEOS INFORMATIVOS + SIRENA SINDICAL (G) + LÁMPARA MINERA (L)
 // ====================================================
 
@@ -13,21 +15,24 @@ var objetosDetalleLejano = [];
 var clock = new THREE.Clock();
 
 // ====================================================
-// 💻 DETECTOR ESTRICTO DE HARDWARE:
-// - Laptops de gama baja y media (Intel HD/UHD/Iris, Radeon Vega integrada, móviles) -> CALIDAD MEDIA
-// - Solo equipos con GPU dedicada de alta capacidad (GTX/RTX, Radeon RX, Apple M-Series) -> CALIDAD ALTA
+// 💻 PERFIL BASE Y PROTECCIÓN DE VRAM PARA GPU INTEGRADA
 // ====================================================
 var ES_CALIDAD_MEDIA = true;
+var hardwareYaDetectadoAl100 = false;
+var _esGpuAntiguaOIntegrada = false;
+var _contextoWebGLPerdido = false;
+
 var PERFIL_CALIDAD = {
     nivel: 'MEDIA',
-    etiquetaSplash: '🖥️ Hardware detectado • Gráficos: CALIDAD MEDIA',
+    etiquetaSplash: '🖥️ Analizando hardware...',
     gpuNombreCorto: '',
+    esMovil: false,
     pixelRatioTour: 0.85,
     pixelRatioJuego: 0.90,
     precisionShader: 'mediump',
     comprimirTexturas: true,
     maxTexDim: 1024,
-    maxCieloDim: 1536,
+    maxCieloDim: 1024,
     maxNormalDim: 512,
     mantenerNormalMaps: true,
     anisotropiaMax: 2,
@@ -48,7 +53,7 @@ function limpiarNombreGPU(rawRenderer) {
     return limpio;
 }
 
-function mostrarHardwareEnSplash() {
+function mostrarHardwareEnSplash(mostrarComoDetectado) {
     var loaderContent = document.querySelector('#loader-container .loader-content') || document.getElementById('loader-container');
     if (!loaderContent) return;
 
@@ -70,12 +75,21 @@ function mostrarHardwareEnSplash() {
         }
     }
 
+    if (!mostrarComoDetectado && !hardwareYaDetectadoAl100) {
+        badge.innerHTML = '⚡ Descargando escena principal (Postes, Sillas, Monumentos)...';
+        return;
+    }
+
     var colorNivel = (PERFIL_CALIDAD.nivel === 'ALTA') ? '#4ade80' : '#facc15';
+    var iconoDispositivo = PERFIL_CALIDAD.esMovil ? '📱 Móvil detectado' : '🖥️ Hardware detectado';
     var infoExtra = PERFIL_CALIDAD.gpuNombreCorto ? (' (' + PERFIL_CALIDAD.gpuNombreCorto + ')') : '';
-    badge.innerHTML = '🖥️ Hardware detectado' + infoExtra + ' • Ajuste automático: <b style="color:' + colorNivel + ';">CALIDAD ' + PERFIL_CALIDAD.nivel + '</b>';
+    badge.innerHTML = iconoDispositivo + infoExtra + ' • Calidad asignada: <b style="color:' + colorNivel + ';">CALIDAD ' + PERFIL_CALIDAD.nivel + '</b>';
 }
 
-function detectarPerfilHardware() {
+function detectarYAplicarHardwareAl100() {
+    if (hardwareYaDetectadoAl100) return;
+    hardwareYaDetectadoAl100 = true;
+
     var esMovil = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
     var nucleosCPU = navigator.hardwareConcurrency || 4;
     var memoriaRAM = navigator.deviceMemory || 8;
@@ -83,8 +97,11 @@ function detectarPerfilHardware() {
     var nombreGpuDetectado = '';
 
     try {
-        var canvasTest = document.createElement('canvas');
-        var gl = canvasTest.getContext('webgl') || canvasTest.getContext('experimental-webgl');
+        var gl = renderer ? renderer.getContext() : null;
+        if (!gl) {
+            var canvasTest = document.createElement('canvas');
+            gl = canvasTest.getContext('webgl') || canvasTest.getContext('experimental-webgl');
+        }
         if (gl) {
             var dbgRenderInfo = gl.getExtension('WEBGL_debug_renderer_info');
             if (dbgRenderInfo) {
@@ -98,6 +115,10 @@ function detectarPerfilHardware() {
                     /celeron|pentium|gma|mesa|llvmpipe|swiftshader|mali|adreno|powervr/i.test(rendererStr) ||
                     /geforce\s*(mx[12345]\d\d|9[1234]0m|8[1234]0m|gt\s*[67]\d\d)/i.test(rendererStr);
 
+                if (/intel.*(hd|uhd)|hd\s*[2345]\d\d\d|celeron|pentium|gma|mali|adreno|powervr/i.test(rendererStr) || esMovil) {
+                    _esGpuAntiguaOIntegrada = true;
+                }
+
                 var esGpuDedicadaAlta =
                     /rtx\s*\d+|gtx\s*(10[5678]\d|16[56]\d|9[678]0)|geforce\s*rtx|geforce\s*gtx/i.test(rendererStr) ||
                     /radeon\s*rx\s*\d+|radeon\s*pro\s*\w+|arc\(tm\)\s*a\d+/i.test(rendererStr) ||
@@ -110,10 +131,30 @@ function detectarPerfilHardware() {
         }
     } catch (e) {}
 
-    if (esEquipoAltaCapacidad) {
+    if (esMovil) {
+        ES_CALIDAD_MEDIA = true;
+        PERFIL_CALIDAD = {
+            nivel: 'MEDIA',
+            esMovil: true,
+            gpuNombreCorto: nombreGpuDetectado || 'GPU Móvil',
+            pixelRatioTour: 0.85,
+            pixelRatioJuego: 0.90,
+            precisionShader: 'mediump',
+            comprimirTexturas: true,
+            maxTexDim: 1024,
+            maxCieloDim: 1024,
+            maxNormalDim: 512,
+            mantenerNormalMaps: true,
+            anisotropiaMax: 2,
+            cullingTourSq: 95 * 95,
+            cullingJuegoSq: 125 * 125,
+            farCamera: 520
+        };
+    } else if (esEquipoAltaCapacidad) {
         ES_CALIDAD_MEDIA = false;
         PERFIL_CALIDAD = {
             nivel: 'ALTA',
+            esMovil: false,
             gpuNombreCorto: nombreGpuDetectado,
             pixelRatioTour: 1.0,
             pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 1.15),
@@ -132,13 +173,14 @@ function detectarPerfilHardware() {
         ES_CALIDAD_MEDIA = true;
         PERFIL_CALIDAD = {
             nivel: 'MEDIA',
+            esMovil: false,
             gpuNombreCorto: nombreGpuDetectado,
             pixelRatioTour: 0.85,
-            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 0.90),
+            pixelRatioJuego: 0.90,
             precisionShader: 'mediump',
             comprimirTexturas: true,
             maxTexDim: 1024,
-            maxCieloDim: 1536,
+            maxCieloDim: 1024,
             maxNormalDim: 512,
             mantenerNormalMaps: true,
             anisotropiaMax: 2,
@@ -148,12 +190,27 @@ function detectarPerfilHardware() {
         };
     }
 
-    console.log("🖥️ Hardware detectado:", nombreGpuDetectado || "Integrado/Estándar", "-> Nivel asignado: CALIDAD " + PERFIL_CALIDAD.nivel);
-    mostrarHardwareEnSplash();
-}
+    if (renderer) {
+        if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
+            maxAnisotropy = Math.min(PERFIL_CALIDAD.anisotropiaMax, renderer.capabilities.getMaxAnisotropy());
+        } else {
+            maxAnisotropy = PERFIL_CALIDAD.anisotropiaMax;
+        }
+        renderer.setPixelRatio(tourActivo ? PERFIL_CALIDAD.pixelRatioTour : PERFIL_CALIDAD.pixelRatioJuego);
+    }
 
-detectarPerfilHardware();
-document.addEventListener("DOMContentLoaded", mostrarHardwareEnSplash);
+    if (camera) {
+        camera.far = PERFIL_CALIDAD.farCamera;
+        camera.updateProjectionMatrix();
+    }
+
+    if (scene && scene.fog) {
+        scene.fog.density = ES_CALIDAD_MEDIA ? 0.0013 : 0.0012;
+    }
+
+    console.log("✅ Hardware reconocido:", nombreGpuDetectado || "Estándar", "-> Nivel aplicado: CALIDAD " + PERFIL_CALIDAD.nivel);
+    mostrarHardwareEnSplash(true);
+}
 
 var maxAnisotropy = PERFIL_CALIDAD.anisotropiaMax;
 var monumentoModalActivo = false;
@@ -278,7 +335,7 @@ function prepararAudioSirena() {
     if (audioSirenaEl) return;
     audioSirenaEl = new Audio(rutasSirena[0]);
     audioSirenaEl.loop = true;
-    audioSirenaEl.preload = 'auto';
+    audioSirenaEl.preload = 'metadata';
     audioSirenaEl.volume = 1;
 
     audioSirenaEl.addEventListener('error', function() {
@@ -293,7 +350,7 @@ function prepararElementosAudioMP3() {
     if (!audioVientoEl) {
         audioVientoEl = new Audio('audios/viento.mp3');
         audioVientoEl.loop = true;
-        audioVientoEl.preload = 'auto';
+        audioVientoEl.preload = 'metadata';
         audioVientoEl.volume = 0.1;
         audioVientoEl.addEventListener('error', function() {
             vientoMp3Disponible = false;
@@ -302,7 +359,7 @@ function prepararElementosAudioMP3() {
     if (!audioPasosEl) {
         audioPasosEl = new Audio('audios/pasos.mp3');
         audioPasosEl.loop = true;
-        audioPasosEl.preload = 'auto';
+        audioPasosEl.preload = 'metadata';
         audioPasosEl.volume = 1.0;
         audioPasosEl.addEventListener('error', function() {
             pasosMp3Disponible = false;
@@ -310,7 +367,6 @@ function prepararElementosAudioMP3() {
     }
 }
 
-// Pre-iniciar carga de efectos de sonido desde el arranque
 prepararAudioSirena();
 prepararElementosAudioMP3();
 
@@ -696,7 +752,7 @@ var CONFIG_PLAYER = {
     floorUpSpeed: 28.0,
     floorDownSpeed: 18.0,
 
-    cameraDistance: 18.0,
+    cameraDistance: 28.0,
     cameraMinDistance: 7.0,
     cameraMaxDistance: 38.0,
     cameraZoomSpeed: 2.0,
@@ -956,7 +1012,7 @@ window.cerrarVideoPunto = function() {
 };
 
 // ====================================================
-// GESTIÓN ADAPTATIVA DE TEXTURAS, MATERIALES Y DRACO WASM
+// GESTIÓN ADAPTATIVA DE TEXTURAS POT (POTENCIA DE 2), MATERIALES Y DRACO WASM
 // ====================================================
 if (THREE.Cache) {
     THREE.Cache.enabled = true;
@@ -989,13 +1045,14 @@ function crearGLTFLoaderOptimizado() {
     return _gltfLoaderUnico;
 }
 
+function aPotenciaDeDos(valor, maxPermitido) {
+    var pot = Math.pow(2, Math.floor(Math.log(Math.max(2, valor)) / Math.LN2));
+    return Math.max(64, Math.min(pot, maxPermitido));
+}
+
 function comprimirTexturaEnCanvas(tex, maxDim) {
     if (!tex || !tex.image) return;
-
-    if (!PERFIL_CALIDAD.comprimirTexturas) {
-        tex.anisotropy = maxAnisotropy;
-        return;
-    }
+    tex.anisotropy = maxAnisotropy;
 
     if (_texturasOptimizadasCache.has(tex)) return;
     _texturasOptimizadasCache.set(tex, true);
@@ -1003,11 +1060,20 @@ function comprimirTexturaEnCanvas(tex, maxDim) {
     var img = tex.image;
     var w = img.width || img.videoWidth || 0;
     var h = img.height || img.videoHeight || 0;
+    if (w <= 0 || h <= 0) return;
 
-    if (w > maxDim || h > maxDim) {
-        var escala = maxDim / Math.max(w, h);
-        var nw = Math.max(128, Math.floor(w * escala));
-        var nh = Math.max(128, Math.floor(h * escala));
+    var limite = maxDim || PERFIL_CALIDAD.maxTexDim || 1024;
+    if (_esGpuAntiguaOIntegrada) {
+        limite = Math.min(limite, 1024);
+    }
+
+    var esPotenciaW = (w & (w - 1)) === 0;
+    var esPotenciaH = (h & (h - 1)) === 0;
+
+    // Convierte texturas NPOT (ej. 2560x1225, 1254x1254) a Potencia de 2 una sola vez en RAM
+    if (!esPotenciaW || !esPotenciaH || (PERFIL_CALIDAD.comprimirTexturas && (w > limite || h > limite))) {
+        var nw = aPotenciaDeDos(w, limite);
+        var nh = aPotenciaDeDos(h, limite);
         try {
             var canvas = document.createElement('canvas');
             canvas.width = nw;
@@ -1018,8 +1084,6 @@ function comprimirTexturaEnCanvas(tex, maxDim) {
             tex.needsUpdate = true;
         } catch (e) {}
     }
-
-    tex.anisotropy = maxAnisotropy;
 }
 
 function mejorarCalidadMaterial(material) {
@@ -1036,26 +1100,25 @@ function mejorarCalidadMaterial(material) {
             m.roughness = 0.45;
         }
 
+        if (m.map) {
+            comprimirTexturaEnCanvas(m.map, PERFIL_CALIDAD.maxTexDim);
+        }
+        if (m.normalMap) {
+            if (_esGpuAntiguaOIntegrada) {
+                m.normalMap.dispose();
+                m.normalMap = null;
+            } else {
+                comprimirTexturaEnCanvas(m.normalMap, PERFIL_CALIDAD.maxNormalDim);
+            }
+        }
         if (ES_CALIDAD_MEDIA) {
-            if (m.map) {
-                comprimirTexturaEnCanvas(m.map, PERFIL_CALIDAD.maxTexDim);
-            }
-            if (m.normalMap) {
-                comprimirTexturaEnCanvas(m.normalMap, PERFIL_CALIDAD.maxNormalDim || 512);
-            }
             if (m.roughnessMap) { m.roughnessMap.dispose(); m.roughnessMap = null; }
             if (m.metalnessMap) { m.metalnessMap.dispose(); m.metalnessMap = null; }
             if (m.aoMap) { m.aoMap.dispose(); m.aoMap = null; }
-            m.shadowSide = null;
-            m.precision = PERFIL_CALIDAD.precisionShader;
-            m.needsUpdate = true;
-        } else {
-            if (m.map) {
-                m.map.anisotropy = maxAnisotropy;
-            }
-            m.shadowSide = null;
-            m.precision = PERFIL_CALIDAD.precisionShader;
+            if (m.emissiveMap && _esGpuAntiguaOIntegrada) { m.emissiveMap.dispose(); m.emissiveMap = null; }
         }
+        m.shadowSide = null;
+        m.precision = PERFIL_CALIDAD.precisionShader;
     }
 }
 
@@ -1232,26 +1295,8 @@ function calcularLimitesSeguros(objeto) {
 }
 
 // ====================================================
-// VISORES 3D DE SELECCIÓN
+// VISORES 3D DE SELECCIÓN (REUTILIZAN EL RENDERER PRINCIPAL: 0 CONTEXTOS EXTRA)
 // ====================================================
-var _offscreenPreviewRenderer = null;
-
-function obtenerRendererPreviewCompartido(w, h) {
-    if (!_offscreenPreviewRenderer) {
-        _offscreenPreviewRenderer = new THREE.WebGLRenderer({
-            alpha: true,
-            antialias: true,
-            powerPreference: "high-performance",
-            precision: PERFIL_CALIDAD.precisionShader
-        });
-        _offscreenPreviewRenderer.setPixelRatio(ES_CALIDAD_MEDIA ? 0.90 : 1.0);
-        _offscreenPreviewRenderer.gammaOutput = true;
-        _offscreenPreviewRenderer.gammaFactor = 2.2;
-    }
-    _offscreenPreviewRenderer.setSize(w, h, false);
-    return _offscreenPreviewRenderer;
-}
-
 function inicializarVisorPreview3D(tipo, canvasId) {
     var canvas = document.getElementById(canvasId);
     if (!canvas) return;
@@ -1347,9 +1392,14 @@ function inicializarVisorPreview3D(tipo, canvasId) {
 }
 
 function renderizarVisoresPreviewPersonajes(delta, elapsedTime) {
-    if (!seleccionPersonajeActiva) return;
+    if (!seleccionPersonajeActiva || !renderer || _contextoWebGLPerdido) return;
     var anguloFrontalSuave = Math.sin(elapsedTime * 1.4) * 0.25;
-    var sharedRenderer = obtenerRendererPreviewCompartido(300, 260);
+
+    var prevClearColor = renderer.getClearColor().clone();
+    var prevClearAlpha = renderer.getClearAlpha();
+
+    renderer.setSize(300, 260, false);
+    renderer.setClearColor(0x0a120f, 0);
 
     ['minero', 'minera'].forEach(function(tipo) {
         var s = previewScenes[tipo];
@@ -1363,13 +1413,17 @@ function renderizarVisoresPreviewPersonajes(delta, elapsedTime) {
                 mixer.update(delta * 0.75);
             }
             m.rotation.y = anguloFrontalSuave;
-            sharedRenderer.render(s, c);
+            renderer.clear();
+            renderer.render(s, c);
 
             var destCanvas = ctx2d.canvas;
             ctx2d.clearRect(0, 0, destCanvas.width, destCanvas.height);
-            ctx2d.drawImage(sharedRenderer.domElement, 0, 0, destCanvas.width, destCanvas.height);
+            ctx2d.drawImage(renderer.domElement, 0, 0, destCanvas.width, destCanvas.height);
         }
     });
+
+    renderer.setClearColor(prevClearColor, prevClearAlpha);
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function crearModalSeleccionPersonaje() {
@@ -1984,7 +2038,7 @@ window.terminarTourPlaza = function(omitirSelector) {
     placeCharacterAndCamera(clock.getElapsedTime());
     camera.updateMatrixWorld(true);
 
-    if (renderer && scene && camera) {
+    if (renderer && scene && camera && !_contextoWebGLPerdido) {
         renderer.render(scene, camera);
     }
 
@@ -2263,7 +2317,7 @@ function actualizarMinimapaRadar(time) {
 // 5. MODO FOTOGRAFÍA / POSTAL TURÍSTICA (TECLA P)
 // ====================================================
 window.tomarFotoPostal = function() {
-    if (!renderer || !scene || !camera || monumentoModalActivo) return;
+    if (!renderer || !scene || !camera || monumentoModalActivo || _contextoWebGLPerdido) return;
 
     renderer.render(scene, camera);
 
@@ -2689,17 +2743,16 @@ window.marcarAnilloVisitado = function(indice) {
         item.labelDiv.innerText = '✔ Punto ' + window.ESTACIONES_HISTORIA[indice].numero + ' Completado';
     }
 };
-
 // ====================================================
-// 🚀 INICIALIZACIÓN DE LA ESCENA: CARGA 100% SIMULTÁNEA (TODOS LOS OBJETOS A LA VEZ)
+// 🚀 INICIALIZACIÓN DE LA ESCENA: CARGA EN 2 FASES + PROTECCIÓN WEBGL
 // ====================================================
 function init() {
-    mostrarHardwareEnSplash();
+    mostrarHardwareEnSplash(false);
 
     scene = new THREE.Scene();
     scene.matrixAutoUpdate = false;
     scene.background = new THREE.Color(0x9bc7e6);
-    scene.fog = new THREE.FogExp2(0xb8d4ea, ES_CALIDAD_MEDIA ? 0.0013 : 0.0012);
+    scene.fog = new THREE.FogExp2(0xb8d4ea, 0.0013);
     
     camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.6, PERFIL_CALIDAD.farCamera);
     camera.position.set(-35, 58, 45);
@@ -2711,7 +2764,7 @@ function init() {
     renderer = new THREE.WebGLRenderer({ 
         antialias: false, 
         powerPreference: "high-performance",
-        precision: PERFIL_CALIDAD.precisionShader,
+        precision: "mediump",
         stencil: false,
         depth: true
     });
@@ -2724,11 +2777,20 @@ function init() {
     renderer.shadowMap.enabled = false;
     document.body.appendChild(renderer.domElement);
 
-    if (renderer.capabilities && typeof renderer.capabilities.getMaxAnisotropy === 'function') {
-        maxAnisotropy = Math.min(PERFIL_CALIDAD.anisotropiaMax, renderer.capabilities.getMaxAnisotropy());
-    } else {
-        maxAnisotropy = 2;
-    }
+    // 🛡️ PROTECCIÓN CONTRA CRASH DE CONTEXTO WEBGL (INTEL HD 4000 / GPUs INTEGRADAS)
+    renderer.domElement.addEventListener('webglcontextlost', function(event) {
+        event.preventDefault();
+        _contextoWebGLPerdido = true;
+        console.warn('⚠️ Contexto WebGL pausado temporalmente para proteger la memoria de video...');
+    }, false);
+
+    renderer.domElement.addEventListener('webglcontextrestored', function() {
+        _contextoWebGLPerdido = false;
+        console.log('✅ Contexto WebGL restaurado.');
+    }, false);
+
+    // Detectamos el hardware al instante (0ms) ANTES de procesar y subir las texturas
+    detectarYAplicarHardwareAl100();
 
     crearHUDGuia();
     inicializarLinternaGuardatojo();
@@ -2775,8 +2837,9 @@ function init() {
     construirEstacionesYCamino();
 
     // ====================================================
-    // 🚀 MOTOR DE DESCARGA MASIVA SIMULTÁNEA (SIN COLA DE ESPERA)
-    // Lanza ABSOLUTAMENTE TODAS las peticiones HTTP al mismo tiempo
+    // ⚡ MOTOR DE CARGA EN 2 FASES PERSONALIZADO:
+    // FASE 1 (EN EL SPLASH): Cielo + Piso + Minero + Minera + 5 Monumentos + BarandasPlaza + Arbol + Postes + SillaGoma
+    // FASE 2 (DESPUÉS DEL SPLASH): Bancas verdes, fuente, reloj, letras, plantas, pilares, audio y otros cielos
     // ====================================================
     var cargar = crearGLTFLoaderOptimizado();
     var texLoaderUnico = new THREE.TextureLoader();
@@ -2784,9 +2847,10 @@ function init() {
 
     var promesasSplash = [];
     var progresoPorTarea = [];
+    var colaSegundoPlano = [];
     var splashYaFinalizado = false;
 
-    function registrarTareaSimultanea(ejecutorFn) {
+    function registrarTareaSplash(ejecutorFn) {
         var idx = progresoPorTarea.length;
         progresoPorTarea.push(0);
 
@@ -2826,6 +2890,25 @@ function init() {
         if (progressText) progressText.innerText = porcentaje + '%';
     }
 
+    // Ejecuta la Fase 2 en segundo plano de 2 en 2 con pausa entre subidas para no saturar VRAM
+    function iniciarCargaSegundoPlano() {
+        var indiceActual = 0;
+        var maxConcurrencia = _esGpuAntiguaOIntegrada ? 1 : 2;
+        var activos = 0;
+
+        function lanzarSiguiente() {
+            while (activos < maxConcurrencia && indiceActual < colaSegundoPlano.length) {
+                var tarea = colaSegundoPlano[indiceActual++];
+                activos++;
+                tarea(function() {
+                    activos--;
+                    setTimeout(lanzarSiguiente, _esGpuAntiguaOIntegrada ? 90 : 35);
+                });
+            }
+        }
+        lanzarSiguiente();
+    }
+
     function finalizarSplashYEmpezarJuego() {
         if (splashYaFinalizado) return;
         splashYaFinalizado = true;
@@ -2834,6 +2917,8 @@ function init() {
         var progressText = document.getElementById('progress-text');
         if (progressBar) progressBar.style.width = '100%';
         if (progressText) progressText.innerText = '100%';
+
+        mostrarHardwareEnSplash(true);
 
         scene.updateMatrixWorld(true);
 
@@ -2848,20 +2933,12 @@ function init() {
             congelarObjetoEstatico(videoRingsGroup);
         }
 
-        // Pre-inicializar los visores 3D de Minero y Minera desde la caché RAM para que el modal abra al instante
-        if (!visoresPreviewInicializados) {
-            visoresPreviewInicializados = true;
-            inicializarVisorPreview3D('minero', 'preview-canvas-minero');
-            inicializarVisorPreview3D('minera', 'preview-canvas-minera');
-        }
-
-        // Precompilar todos los shaders de la escena en la GPU antes de quitar el splash
-        if (renderer && typeof renderer.compile === 'function') {
-            try { renderer.compile(scene, camera); } catch (e) {}
-        }
-
+        // Quitar el Splash inmediatamente (sin renderer.compile síncrono que cuelga Intel HD 4000)
         var loaderContainer = document.getElementById("loader-container");
         if (loaderContainer) loaderContainer.classList.add("loaded");
+
+        // 🚀 Arrancar en segundo plano la carga escalonada del resto de objetos de la plaza
+        setTimeout(iniciarCargaSegundoPlano, 250);
 
         var pantallaBienvenida = document.getElementById('pantalla-bienvenida');
         var volvioDeMonumento = restaurarEstadoJugadorDeSesion();
@@ -2909,56 +2986,8 @@ function init() {
         }
     }
 
-    function descargarTexturaSimultanea(url, esCieloPrincipal) {
-        registrarTareaSimultanea(function(onProgress, onDone) {
-            texLoaderUnico.load(
-                url,
-                function(texture) {
-                    if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
-                    comprimirTexturaEnCanvas(texture, PERFIL_CALIDAD.maxCieloDim);
-                    texturasCieloCache[url] = texture;
-                    if (esCieloPrincipal) {
-                        scene.background = texture;
-                    }
-                    onDone();
-                },
-                function(xhr) {
-                    if (xhr && xhr.lengthComputable && xhr.total > 0) {
-                        onProgress(xhr.loaded / xhr.total);
-                    }
-                },
-                function() {
-                    onDone();
-                }
-            );
-        });
-    }
-
-    function descargarAudioSimultaneo(url) {
-        registrarTareaSimultanea(function(onProgress, onDone) {
-            audioLoaderUnico.load(
-                url,
-                function(buffer) {
-                    sound.setBuffer(buffer);
-                    sound.setLoop(true);
-                    sound.setVolume(0.28);
-                    sincronizarAudioFondoYSirena();
-                    onDone();
-                },
-                function(xhr) {
-                    if (xhr && xhr.lengthComputable && xhr.total > 0) {
-                        onProgress(xhr.loaded / xhr.total);
-                    }
-                },
-                function() {
-                    onDone();
-                }
-            );
-        });
-    }
-
-    function encolarGLB(url, callbackExito, esGltfCompleto) {
-        registrarTareaSimultanea(function(onProgress, onDone) {
+    function encolarGLB(url, callbackExito, esGltfCompleto, enSplash) {
+        var ejecutor = function(onProgress, onDone) {
             var intentos = 0;
             var maxIntentos = 3;
 
@@ -2989,7 +3018,7 @@ function init() {
                         onDone();
                     },
                     function(xhr) {
-                        if (xhr && xhr.lengthComputable && xhr.total > 0) {
+                        if (onProgress && xhr && xhr.lengthComputable && xhr.total > 0) {
                             onProgress(xhr.loaded / xhr.total);
                         }
                     },
@@ -3005,24 +3034,50 @@ function init() {
             }
 
             intentarDescargaGLB();
-        });
+        };
+
+        if (enSplash) {
+            registrarTareaSplash(ejecutor);
+        } else {
+            colaSegundoPlano.push(function(done) {
+                ejecutor(null, done);
+            });
+        }
     }
 
     function cargarModeloEnSplash(url, callbackExito) {
-        encolarGLB(url, callbackExito, false);
+        encolarGLB(url, callbackExito, false, true);
     }
 
-    // ====================================================
-    // 0. DISPARAR LOS 3 CIELOS Y LA MÚSICA AL MISMO TIEMPO
-    // ====================================================
-    descargarTexturaSimultanea("imagenes/cielo.jpg", true);
-    descargarTexturaSimultanea("imagenes/atardecer.jpg", false);
-    descargarTexturaSimultanea("imagenes/noche.png", false);
-    descargarAudioSimultaneo("assets/mieros.mp3");
+    function cargarModeloDespuesDelSplash(url, callbackExito) {
+        encolarGLB(url, callbackExito, false, false);
+    }
 
-    // ====================================================
-    // 1. DISPARAR PISO.GLB Y AMBOS PERSONAJES (MINERO Y MINERA) AL MISMO TIEMPO
-    // ====================================================
+    // =========================================================================
+    // 🚀 FASE 1: OBJETOS QUE CARGAN EN EL SPLASH (INCLUYE POSTES Y SILLAS DE GOMA)
+    // =========================================================================
+
+    // 1. Cielo Principal (Día)
+    registrarTareaSplash(function(onProgress, onDone) {
+        texLoaderUnico.load(
+            "imagenes/cielo.jpg",
+            function(texture) {
+                if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
+                comprimirTexturaEnCanvas(texture, PERFIL_CALIDAD.maxCieloDim);
+                texturasCieloCache["imagenes/cielo.jpg"] = texture;
+                scene.background = texture;
+                onDone();
+            },
+            function(xhr) {
+                if (xhr && xhr.lengthComputable && xhr.total > 0) {
+                    onProgress(xhr.loaded / xhr.total);
+                }
+            },
+            function() { onDone(); }
+        );
+    });
+
+    // 2. Piso de la Plaza (piso.glb)
     encolarGLB("assets/piso.glb", function(gltf) {
         plaza = gltf.scene;
         plaza.position.set(0, 0, 0);
@@ -3059,15 +3114,16 @@ function init() {
             }
         });
         congelarObjetoEstatico(plaza);
-    }, true);
+    }, true, true);
 
+    // 3. Personaje Hombre (personaje.glb)
     encolarGLB("assets/personaje.glb", function(gltf) {
         aplicarGltfAlPersonaje(clonarGltfCacheado(gltf), 'minero');
         characterGroup.visible = false;
-    }, true);
+    }, true, true);
 
-    // Pre-cargar también a la Minera al mismo tiempo en el Splash para que ya entre 100% cargada en RAM
-    registrarTareaSimultanea(function(onProgress, onDone) {
+    // 4. Personaje Mujer (minera.glb)
+    registrarTareaSplash(function(onProgress, onDone) {
         cargarGLBConRespaldo(MODELOS_PERSONAJES.minera, function() {
             onDone();
         }, function() {
@@ -3075,9 +3131,7 @@ function init() {
         }, onProgress);
     });
 
-    // ====================================================
-    // 2. MONUMENTOS Y PEDESTALES EN EL SPLASH (SIMULTÁNEOS)
-    // ====================================================
+    // 5. Monumentos y Pedestales (Irineo, Federico, César/Escobar, Palliri y CompletoMina)
     cargarModeloEnSplash("assets/Pedestalirineo.glb", function(est1) { 
         est1.scale.set(3.5, 3.5, 3.5); est1.position.set(-73, 3.5, 22); scene.add(est1); 
         registrarParaColision(est1, true);
@@ -3103,97 +3157,8 @@ function init() {
         registrarParaColision(est6, true);
         agregarObstaculoCircular(-111.5, -13, 5.8);
     });
-    
-    // ====================================================
-    // 3. POSTES DE ALUMBRADO EN EL SPLASH (SIMULTÁNEOS)
-    // ====================================================
-    cargarModeloEnSplash("assets/poste.glb", function(modeloBase) {
-        modeloBase.scale.set(8.5, 8.5, 8.5);
 
-        function crearPoste(x, y, z) {
-            var posteClonado = modeloBase.clone();
-            posteClonado.position.set(x, y, z);
-            scene.add(posteClonado);
-            registrarParaColision(posteClonado, true);
-            agregarObstaculoCircular(x, z, 1.35);
-        }
-
-        crearPoste(-52, 7, 30); crearPoste(-52, 7, -5); crearPoste(-52, 7, -35);
-        crearPoste(-52, 7, -65); crearPoste(-52, 7, -95); crearPoste(-25, 1.4, 79);
-        crearPoste(-89.5, 7, -93.5); crearPoste(-89, 7, -117); crearPoste(-52, 7, -120);
-        crearPoste(-130, 7, -150); crearPoste(-135, 7, -103); crearPoste(-52, 7, -150);
-    });
-
-    // ====================================================
-    // 4. BANCAS VERDES EN EL SPLASH (SIMULTÁNEAS)
-    // ====================================================
-    cargarModeloEnSplash("assets/bancaverde.glb", function(modeloBanca) {
-        modeloBanca.scale.set(11, 11, 10);
-        var obj7 = modeloBanca.clone(); obj7.position.set(-77.5, 8, -60); scene.add(obj7); registrarParaColision(obj7, true); agregarObstaculoCircular(-77.5, -60, 2.3);
-        var obj8 = modeloBanca.clone(); obj8.position.set(-77.5, 8, -88.5); obj8.rotation.y += Math.PI; scene.add(obj8); registrarParaColision(obj8, true); agregarObstaculoCircular(-77.5, -88.5, 2.3);
-        var obj9 = modeloBanca.clone(); obj9.position.set(-68, 8, -75.5); obj9.rotation.set(0, Math.PI / 2, 0); scene.add(obj9); registrarParaColision(obj9, true); agregarObstaculoCircular(-68, -75.5, 2.3);
-        var obj10 = modeloBanca.clone(); obj10.position.set(-111, 8, -60); scene.add(obj10); registrarParaColision(obj10, true); agregarObstaculoCircular(-111, -60, 2.3);
-        var obj11 = modeloBanca.clone(); obj11.position.set(-114.5, 8, -88.5); obj11.rotation.y += Math.PI; scene.add(obj11); registrarParaColision(obj11, true); agregarObstaculoCircular(-114.5, -88.5, 2.3);
-        var obj12 = modeloBanca.clone(); obj12.position.set(-112, 8, -120); scene.add(obj12); registrarParaColision(obj12, true); agregarObstaculoCircular(-112, -120, 2.3);
-        var obj13 = modeloBanca.clone(); obj13.position.set(-112.5, 8, -148); obj13.rotation.y += Math.PI; scene.add(obj13); registrarParaColision(obj13, true); agregarObstaculoCircular(-112.5, -148, 2.3);
-        var obj14 = modeloBanca.clone(); obj14.position.set(-77.5, 8, -148); obj14.rotation.y += Math.PI; scene.add(obj14); registrarParaColision(obj14, true); agregarObstaculoCircular(-77.5, -148, 2.3);
-        var obj15 = modeloBanca.clone(); obj15.position.set(-77.5, 8, -119); scene.add(obj15); registrarParaColision(obj15, true); agregarObstaculoCircular(-77.5, -119, 2.3);
-        var obj16 = modeloBanca.clone(); obj16.position.set(-68, 8, -134.5); obj16.rotation.set(0, Math.PI / 2, 0); scene.add(obj16); registrarParaColision(obj16, true); agregarObstaculoCircular(-68, -134.5, 2.3);
-    });
-
-    // ====================================================
-    // 4.B ÁRBOLES, PLANTAS, LETRAS Y PILARES EN EL SPLASH (SIMULTÁNEOS)
-    // ====================================================
-    cargarModeloEnSplash("assets/arbol.glb", function(modeloArbol) {
-        modeloArbol.scale.set(35, 35, 35);
-        var obj40 = modeloArbol.clone(); obj40.position.set(-105, 8, 20); scene.add(obj40); congelarObjetoEstatico(obj40); agregarObstaculoCircular(-105, 20, 1.8);
-        var obj41 = modeloArbol.clone(); obj41.position.set(-105, 8, -38); scene.add(obj41); congelarObjetoEstatico(obj41); agregarObstaculoCircular(-105, -38, 1.8);
-        var obj42 = modeloArbol.clone(); obj42.position.set(-128, 8, -38); scene.add(obj42); congelarObjetoEstatico(obj42); agregarObstaculoCircular(-128, -38, 1.8);
-        var obj43 = modeloArbol.clone(); obj43.position.set(-86, 8, -120); scene.add(obj43); congelarObjetoEstatico(obj43); agregarObstaculoCircular(-86, -120, 1.8);
-    });
-
-    cargarModeloEnSplash("assets/planta.glb", function(modeloPlanta) {
-        modeloPlanta.scale.set(6, 7, 6);
-        var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); congelarObjetoEstatico(obj40); objetosDetalleLejano.push(obj40); agregarObstaculoCircular(-85, -82, 1.4);
-        var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); congelarObjetoEstatico(obj41); objetosDetalleLejano.push(obj41); agregarObstaculoCircular(-120, -70, 1.4);
-        var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); congelarObjetoEstatico(obj42); objetosDetalleLejano.push(obj42); agregarObstaculoCircular(-123, -147, 1.6);
-    });
-
-    cargarModeloEnSplash("assets/letrasiglo.glb", function(modeloletra) {
-        modeloletra.scale.set(24, 24, 24);
-        var obj40 = modeloletra.clone(); obj40.position.set(-78, 8, -133); obj40.rotation.set(0, Math.PI / -2, 0); scene.add(obj40);
-        registrarParaColision(obj40, true);
-        agregarObstaculoCircular(-78, -133, 2.5);
-    });
-    
-    cargarModeloEnSplash("assets/pilar.glb", function(modelopilar) {
-        modelopilar.scale.set(9, 12, 12);
-        var pilar22 = modelopilar.clone(); pilar22.position.set(-105, 10.5, 0.5); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22); registrarParaColision(pilar22, true); agregarObstaculoCircular(-105, 0.5, 1.4);
-        var pilar23 = modelopilar.clone(); pilar23.position.set(-116.9, 10.5, 0.5); pilar23.rotation.y = Math.PI / 2; scene.add(pilar23); registrarParaColision(pilar23, true); agregarObstaculoCircular(-116.9, 0.5, 1.4);
-        var pilar7 = modelopilar.clone(); pilar7.position.set(-121.5, 10.5, -22); scene.add(pilar7); registrarParaColision(pilar7, true); agregarObstaculoCircular(-121.5, -22, 1.4);
-        var pilar17 = modelopilar.clone(); pilar17.position.set(-121.5, 10.5, -13); scene.add(pilar17); registrarParaColision(pilar17, true); agregarObstaculoCircular(-121.5, -13, 1.4);
-        var pilar18 = modelopilar.clone(); pilar18.position.set(-121.5, 10.5, -4); scene.add(pilar18); registrarParaColision(pilar18, true); agregarObstaculoCircular(-121.5, -4, 1.4);
-        var pilar19 = modelopilar.clone(); pilar19.position.set(-100.5, 10.5, -22); scene.add(pilar19); registrarParaColision(pilar19, true); agregarObstaculoCircular(-100.5, -22, 1.4);
-        var pilar20 = modelopilar.clone(); pilar20.position.set(-100.5, 10.5, -13); scene.add(pilar20); registrarParaColision(pilar20, true); agregarObstaculoCircular(-100.5, -13, 1.4);
-        var pilar21 = modelopilar.clone(); pilar21.position.set(-100.5, 10.5, -4); scene.add(pilar21); registrarParaColision(pilar21, true); agregarObstaculoCircular(-100.5, -4, 1.4);
-    });
-    
-    // ====================================================
-    // 5. SILLAS DE GOMA EN EL SPLASH (SIMULTÁNEAS)
-    // ====================================================
-    cargarModeloEnSplash("assets/sillagoma.glb", function(modeloSilla) {
-        modeloSilla.scale.set(6, 6.5, 6);
-        var obj14 = modeloSilla.clone(); obj14.position.set(-61.5, 7, 23); obj14.rotation.y = Math.PI; scene.add(obj14); registrarParaColision(obj14, true); objetosDetalleLejano.push(obj14); agregarObstaculoCircular(-61.5, 23, 1.5);
-        var silla2 = modeloSilla.clone(); silla2.position.set(-61.5, 7, 10); silla2.rotation.y = Math.PI; scene.add(silla2); registrarParaColision(silla2, true); objetosDetalleLejano.push(silla2); agregarObstaculoCircular(-61.5, 10, 1.5);
-        var silla3 = modeloSilla.clone(); silla3.position.set(-61.5, 7, -33); silla3.rotation.y = Math.PI; scene.add(silla3); registrarParaColision(silla3, true); objetosDetalleLejano.push(silla3); agregarObstaculoCircular(-61.5, -33, 1.5);
-        var silla4 = modeloSilla.clone(); silla4.position.set(-61.5, 7, -42); silla4.rotation.y = Math.PI; scene.add(silla4); registrarParaColision(silla4, true); objetosDetalleLejano.push(silla4); agregarObstaculoCircular(-61.5, -42, 1.5);
-        var silla5 = modeloSilla.clone(); silla5.position.set(-61.5, 7, -63); silla5.rotation.y = Math.PI; scene.add(silla5); registrarParaColision(silla5, true); objetosDetalleLejano.push(silla5); agregarObstaculoCircular(-61.5, -63, 1.5);
-        var silla6 = modeloSilla.clone(); silla6.position.set(-61.5, 7, -87); silla6.rotation.y = Math.PI; scene.add(silla6); registrarParaColision(silla6, true); objetosDetalleLejano.push(silla6); agregarObstaculoCircular(-61.5, -87, 1.5);
-    });
-
-    // ====================================================
-    // 6. BARANDAS DE LA PLAZA EN EL SPLASH (SIMULTÁNEAS)
-    // ====================================================
+    // 6. Barandas de la plaza (barandasplaza.glb)
     cargarModeloEnSplash("assets/barandasplaza.glb", function(modeloBaranda) {
         var obj8 = modeloBaranda.clone(); obj8.scale.set(6, 7, 8.5); obj8.position.set(-65, 8.6, 30); obj8.rotation.set(0, Math.PI / 2, 0); scene.add(obj8); registrarParaColision(obj8, true);
         var obj9 = modeloBaranda.clone(); obj9.scale.set(6, 7, 8.5); obj9.position.set(-96.3, 8.6, 30); obj9.rotation.set(0, Math.PI / 2, 0); scene.add(obj9); registrarParaColision(obj9, true);
@@ -3251,10 +3216,121 @@ function init() {
         registrarParaColision(grupoBarandasCopia1, true);
     });
 
-    // ====================================================
-    // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS EN EL SPLASH (SIMULTÁNEOS)
-    // ====================================================
-    cargarModeloEnSplash("assets/planta1.glb", function(modeloplanta1) {
+    // 7. Árboles principales (arbol.glb)
+    cargarModeloEnSplash("assets/arbol.glb", function(modeloArbol) {
+        modeloArbol.scale.set(35, 35, 35);
+        var obj40 = modeloArbol.clone(); obj40.position.set(-105, 8, 20); scene.add(obj40); congelarObjetoEstatico(obj40); agregarObstaculoCircular(-105, 20, 1.8);
+        var obj41 = modeloArbol.clone(); obj41.position.set(-105, 8, -38); scene.add(obj41); congelarObjetoEstatico(obj41); agregarObstaculoCircular(-105, -38, 1.8);
+        var obj42 = modeloArbol.clone(); obj42.position.set(-128, 8, -38); scene.add(obj42); congelarObjetoEstatico(obj42); agregarObstaculoCircular(-128, -38, 1.8);
+        var obj43 = modeloArbol.clone(); obj43.position.set(-86, 8, -120); scene.add(obj43); congelarObjetoEstatico(obj43); agregarObstaculoCircular(-86, -120, 1.8);
+    });
+
+    // 8. Postes de alumbrado (poste.glb) -> EN PRIMERA CARGA (SPLASH)
+    cargarModeloEnSplash("assets/poste.glb", function(modeloBase) {
+        modeloBase.scale.set(8.5, 8.5, 8.5);
+        function crearPoste(x, y, z) {
+            var posteClonado = modeloBase.clone();
+            posteClonado.position.set(x, y, z);
+            scene.add(posteClonado);
+            registrarParaColision(posteClonado, true);
+            agregarObstaculoCircular(x, z, 1.35);
+        }
+        crearPoste(-52, 7, 30); crearPoste(-52, 7, -5); crearPoste(-52, 7, -35);
+        crearPoste(-52, 7, -65); crearPoste(-52, 7, -95); crearPoste(-25, 1.4, 79);
+        crearPoste(-89.5, 7, -93.5); crearPoste(-89, 7, -117); crearPoste(-52, 7, -120);
+        crearPoste(-130, 7, -150); crearPoste(-135, 7, -103); crearPoste(-52, 7, -150);
+    });
+
+    // 9. Sillas de goma (sillagoma.glb) -> EN PRIMERA CARGA (SPLASH)
+    cargarModeloEnSplash("assets/sillagoma.glb", function(modeloSilla) {
+        modeloSilla.scale.set(6, 6.5, 6);
+        var obj14 = modeloSilla.clone(); obj14.position.set(-61.5, 7, 23); obj14.rotation.y = Math.PI; scene.add(obj14); registrarParaColision(obj14, true); objetosDetalleLejano.push(obj14); agregarObstaculoCircular(-61.5, 23, 1.5);
+        var silla2 = modeloSilla.clone(); silla2.position.set(-61.5, 7, 10); silla2.rotation.y = Math.PI; scene.add(silla2); registrarParaColision(silla2, true); objetosDetalleLejano.push(silla2); agregarObstaculoCircular(-61.5, 10, 1.5);
+        var silla3 = modeloSilla.clone(); silla3.position.set(-61.5, 7, -33); silla3.rotation.y = Math.PI; scene.add(silla3); registrarParaColision(silla3, true); objetosDetalleLejano.push(silla3); agregarObstaculoCircular(-61.5, -33, 1.5);
+        var silla4 = modeloSilla.clone(); silla4.position.set(-61.5, 7, -42); silla4.rotation.y = Math.PI; scene.add(silla4); registrarParaColision(silla4, true); objetosDetalleLejano.push(silla4); agregarObstaculoCircular(-61.5, -42, 1.5);
+        var silla5 = modeloSilla.clone(); silla5.position.set(-61.5, 7, -63); silla5.rotation.y = Math.PI; scene.add(silla5); registrarParaColision(silla5, true); objetosDetalleLejano.push(silla5); agregarObstaculoCircular(-61.5, -63, 1.5);
+        var silla6 = modeloSilla.clone(); silla6.position.set(-61.5, 7, -87); silla6.rotation.y = Math.PI; scene.add(silla6); registrarParaColision(silla6, true); objetosDetalleLejano.push(silla6); agregarObstaculoCircular(-61.5, -87, 1.5);
+    });
+
+    // =========================================================================
+    // 🌊 FASE 2: OBJETOS QUE CARGAN DESPUÉS DEL SPLASH (EN SEGUNDO PLANO)
+    // =========================================================================
+
+    // Bancas verdes
+    cargarModeloDespuesDelSplash("assets/bancaverde.glb", function(modeloBanca) {
+        modeloBanca.scale.set(11, 11, 10);
+        var obj7 = modeloBanca.clone(); obj7.position.set(-77.5, 8, -60); scene.add(obj7); registrarParaColision(obj7, true); agregarObstaculoCircular(-77.5, -60, 2.3);
+        var obj8 = modeloBanca.clone(); obj8.position.set(-77.5, 8, -88.5); obj8.rotation.y += Math.PI; scene.add(obj8); registrarParaColision(obj8, true); agregarObstaculoCircular(-77.5, -88.5, 2.3);
+        var obj9 = modeloBanca.clone(); obj9.position.set(-68, 8, -75.5); obj9.rotation.set(0, Math.PI / 2, 0); scene.add(obj9); registrarParaColision(obj9, true); agregarObstaculoCircular(-68, -75.5, 2.3);
+        var obj10 = modeloBanca.clone(); obj10.position.set(-111, 8, -60); scene.add(obj10); registrarParaColision(obj10, true); agregarObstaculoCircular(-111, -60, 2.3);
+        var obj11 = modeloBanca.clone(); obj11.position.set(-114.5, 8, -88.5); obj11.rotation.y += Math.PI; scene.add(obj11); registrarParaColision(obj11, true); agregarObstaculoCircular(-114.5, -88.5, 2.3);
+        var obj12 = modeloBanca.clone(); obj12.position.set(-112, 8, -120); scene.add(obj12); registrarParaColision(obj12, true); agregarObstaculoCircular(-112, -120, 2.3);
+        var obj13 = modeloBanca.clone(); obj13.position.set(-112.5, 8, -148); obj13.rotation.y += Math.PI; scene.add(obj13); registrarParaColision(obj13, true); agregarObstaculoCircular(-112.5, -148, 2.3);
+        var obj14 = modeloBanca.clone(); obj14.position.set(-77.5, 8, -148); obj14.rotation.y += Math.PI; scene.add(obj14); registrarParaColision(obj14, true); agregarObstaculoCircular(-77.5, -148, 2.3);
+        var obj15 = modeloBanca.clone(); obj15.position.set(-77.5, 8, -119); scene.add(obj15); registrarParaColision(obj15, true); agregarObstaculoCircular(-77.5, -119, 2.3);
+        var obj16 = modeloBanca.clone(); obj16.position.set(-68, 8, -134.5); obj16.rotation.set(0, Math.PI / 2, 0); scene.add(obj16); registrarParaColision(obj16, true); agregarObstaculoCircular(-68, -134.5, 2.3);
+    });
+
+    // Letras Siglo XX, Fuente, Reloj y Pilares
+    cargarModeloDespuesDelSplash("assets/letrasiglo.glb", function(modeloletra) {
+        modeloletra.scale.set(24, 24, 24);
+        var obj40 = modeloletra.clone(); obj40.position.set(-78, 8, -133); obj40.rotation.set(0, Math.PI / -2, 0); scene.add(obj40);
+        registrarParaColision(obj40, true);
+        agregarObstaculoCircular(-78, -133, 2.5);
+    });
+
+    cargarModeloDespuesDelSplash("assets/fuente.glb", function(modelofuente) {
+        modelofuente.scale.set(15, 15, 15);
+        var pilar22 = modelofuente.clone(); pilar22.position.set(-114, 7, -104); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22);
+        registrarParaColision(pilar22, true);
+        agregarObstaculoCircular(-114, -104, 4.2);
+    });
+
+    cargarModeloDespuesDelSplash("assets/reloj.glb", function(modeloreloj) {
+        modeloreloj.scale.set(19, 19, 19);
+        var pilar22 = modeloreloj.clone(); pilar22.position.set(-68, 8, -147); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22);
+        registrarParaColision(pilar22, true);
+        agregarObstaculoCircular(-68, -147, 2.2);
+    });
+
+    cargarModeloDespuesDelSplash("assets/pilar.glb", function(modelopilar) {
+        modelopilar.scale.set(9, 12, 12);
+        var pilar22 = modelopilar.clone(); pilar22.position.set(-105, 10.5, 0.5); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22); registrarParaColision(pilar22, true); agregarObstaculoCircular(-105, 0.5, 1.4);
+        var pilar23 = modelopilar.clone(); pilar23.position.set(-116.9, 10.5, 0.5); pilar23.rotation.y = Math.PI / 2; scene.add(pilar23); registrarParaColision(pilar23, true); agregarObstaculoCircular(-116.9, 0.5, 1.4);
+        var pilar7 = modelopilar.clone(); pilar7.position.set(-121.5, 10.5, -22); scene.add(pilar7); registrarParaColision(pilar7, true); agregarObstaculoCircular(-121.5, -22, 1.4);
+        var pilar17 = modelopilar.clone(); pilar17.position.set(-121.5, 10.5, -13); scene.add(pilar17); registrarParaColision(pilar17, true); agregarObstaculoCircular(-121.5, -13, 1.4);
+        var pilar18 = modelopilar.clone(); pilar18.position.set(-121.5, 10.5, -4); scene.add(pilar18); registrarParaColision(pilar18, true); agregarObstaculoCircular(-121.5, -4, 1.4);
+        var pilar19 = modelopilar.clone(); pilar19.position.set(-100.5, 10.5, -22); scene.add(pilar19); registrarParaColision(pilar19, true); agregarObstaculoCircular(-100.5, -22, 1.4);
+        var pilar20 = modelopilar.clone(); pilar20.position.set(-100.5, 10.5, -13); scene.add(pilar20); registrarParaColision(pilar20, true); agregarObstaculoCircular(-100.5, -13, 1.4);
+        var pilar21 = modelopilar.clone(); pilar21.position.set(-100.5, 10.5, -4); scene.add(pilar21); registrarParaColision(pilar21, true); agregarObstaculoCircular(-100.5, -4, 1.4);
+    });
+
+    // Barandas doradas
+    cargarModeloDespuesDelSplash("assets/barandadorada.glb", function(modelodorado) {
+        modelodorado.scale.set(18, 11, 11);
+        [-67, -80, -93, -106, -119, -132, -145].forEach(function(z) {
+            var p = modelodorado.clone(); p.position.set(-142, 14, z); p.rotation.y = Math.PI / 2; scene.add(p);
+            registrarParaColision(p, true);
+        });
+    });
+
+    // Resto de vegetación, arbolitos y macetas
+    cargarModeloDespuesDelSplash("assets/arbol1.glb", function(modeloarbol1) {
+        modeloarbol1.scale.set(600, 600, 600);
+        var pilar22 = modeloarbol1.clone(); pilar22.position.set(-103, 5, -82); scene.add(pilar22); congelarObjetoEstatico(pilar22); agregarObstaculoCircular(-103, -82, 1.6);
+        var pilar23 = modeloarbol1.clone(); pilar23.position.set(-123, 5, -82); scene.add(pilar23); congelarObjetoEstatico(pilar23); agregarObstaculoCircular(-123, -82, 1.6);
+        var pilar24 = modeloarbol1.clone(); pilar24.position.set(-85, 5, -145); scene.add(pilar24); congelarObjetoEstatico(pilar24); agregarObstaculoCircular(-85, -145, 1.6);
+        var pilar25 = modeloarbol1.clone(); pilar25.position.set(-121, 5, -120); scene.add(pilar25); congelarObjetoEstatico(pilar25); agregarObstaculoCircular(-121, -120, 1.6);
+    });
+
+    cargarModeloDespuesDelSplash("assets/planta.glb", function(modeloPlanta) {
+        modeloPlanta.scale.set(6, 7, 6);
+        var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); congelarObjetoEstatico(obj40); objetosDetalleLejano.push(obj40); agregarObstaculoCircular(-85, -82, 1.4);
+        var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); congelarObjetoEstatico(obj41); objetosDetalleLejano.push(obj41); agregarObstaculoCircular(-120, -70, 1.4);
+        var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); congelarObjetoEstatico(obj42); objetosDetalleLejano.push(obj42); agregarObstaculoCircular(-123, -147, 1.6);
+    });
+
+    cargarModeloDespuesDelSplash("assets/planta1.glb", function(modeloplanta1) {
         var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -70, 1.2);
         var obj19 = modeloplanta1.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-105, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-105, -70, 1.2);
         var obj20 = modeloplanta1.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-83, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-83, -40, 1.2);
@@ -3263,7 +3339,7 @@ function init() {
         var obj23 = modeloplanta1.clone(); obj23.scale.set(8, 8, 8); obj23.position.set(-121, 7.5, -134); scene.add(obj23); congelarObjetoEstatico(obj23); objetosDetalleLejano.push(obj23); agregarObstaculoCircular(-121, -134, 1.2);
     });
 
-    cargarModeloEnSplash("assets/planta3.glb", function(modeloplanta3) {
+    cargarModeloDespuesDelSplash("assets/planta3.glb", function(modeloplanta3) {
         var obj18 = modeloplanta3.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -76.5); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -76.5, 1.1);
         var obj19 = modeloplanta3.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-113, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-113, -70, 1.1);
         var obj20 = modeloplanta3.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-90, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-90, -40, 1.1);
@@ -3276,7 +3352,7 @@ function init() {
         var obj27 = modeloplanta3.clone(); obj27.scale.set(7, 7, 7); obj27.position.set(-68, 7.5, -120); scene.add(obj27); congelarObjetoEstatico(obj27); objetosDetalleLejano.push(obj27); agregarObstaculoCircular(-68, -120, 1.1);
     });
 
-    cargarModeloEnSplash("assets/otroarbolito.glb", function(modeloarbolito2) {
+    cargarModeloDespuesDelSplash("assets/otroarbolito.glb", function(modeloarbolito2) {
         var obj18 = modeloarbolito2.clone(); obj18.scale.set(2, 2, 2); obj18.position.set(-70, 7.5, -63); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-70, -63, 1.3);
         var obj19 = modeloarbolito2.clone(); obj19.scale.set(2, 2, 2); obj19.position.set(-100, 7.5, -64); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-100, -64, 1.3);
         var obj20 = modeloarbolito2.clone(); obj20.scale.set(4, 4, 4); obj20.position.set(-140, 7.5, -25); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-140, -25, 1.6);
@@ -3286,7 +3362,7 @@ function init() {
         var obj24 = modeloarbolito2.clone(); obj24.scale.set(4, 4, 4); obj24.position.set(-140, 7.5, 15); scene.add(obj24); congelarObjetoEstatico(obj24); agregarObstaculoCircular(-140, 15, 1.6);
     });
 
-    cargarModeloEnSplash("assets/otroarbolito1.glb", function(modeloarbolito3) {
+    cargarModeloDespuesDelSplash("assets/otroarbolito1.glb", function(modeloarbolito3) {
         var obj18 = modeloarbolito3.clone(); obj18.scale.set(0.05, 0.05, 0.05); obj18.position.set(-75, 7.5, -83); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-75, -83, 1.3);
         var obj19 = modeloarbolito3.clone(); obj19.scale.set(0.05, 0.05, 0.05); obj19.position.set(-104, 7.5, -78); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-104, -78, 1.3);
         var obj20 = modeloarbolito3.clone(); obj20.scale.set(0.05, 0.05, 0.05); obj20.position.set(-140, 7.5, -18); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-140, -18, 1.3);
@@ -3294,58 +3370,47 @@ function init() {
         var obj22 = modeloarbolito3.clone(); obj22.scale.set(0.05, 0.05, 0.05); obj22.position.set(-74, 7.5, -128); scene.add(obj22); congelarObjetoEstatico(obj22); objetosDetalleLejano.push(obj22); agregarObstaculoCircular(-74, -128, 1.3);
     });
 
-    cargarModeloEnSplash("assets/arbol1.glb", function(modeloarbol1) {
-        modeloarbol1.scale.set(600, 600, 600);
-        var pilar22 = modeloarbol1.clone(); pilar22.position.set(-103, 5, -82); scene.add(pilar22); congelarObjetoEstatico(pilar22); agregarObstaculoCircular(-103, -82, 1.6);
-        var pilar23 = modeloarbol1.clone(); pilar23.position.set(-123, 5, -82); scene.add(pilar23); congelarObjetoEstatico(pilar23); agregarObstaculoCircular(-123, -82, 1.6);
-        var pilar24 = modeloarbol1.clone(); pilar24.position.set(-85, 5, -145); scene.add(pilar24); congelarObjetoEstatico(pilar24); agregarObstaculoCircular(-85, -145, 1.6);
-        var pilar25 = modeloarbol1.clone(); pilar25.position.set(-121, 5, -120); scene.add(pilar25); congelarObjetoEstatico(pilar25); agregarObstaculoCircular(-121, -120, 1.6);
-    });
-
-    // ====================================================
-    // 8. ELEMENTOS URBANOS, MACETAS Y BARANDAS DORADAS EN EL SPLASH (SIMULTÁNEOS)
-    // ====================================================
-    cargarModeloEnSplash("assets/fuente.glb", function(modelofuente) {
-        modelofuente.scale.set(15, 15, 15);
-        var pilar22 = modelofuente.clone(); pilar22.position.set(-114, 7, -104); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22);
-        registrarParaColision(pilar22, true);
-        agregarObstaculoCircular(-114, -104, 4.2);
-    });
-
-    cargarModeloEnSplash("assets/reloj.glb", function(modeloreloj) {
-        modeloreloj.scale.set(19, 19, 19);
-        var pilar22 = modeloreloj.clone(); pilar22.position.set(-68, 8, -147); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22);
-        registrarParaColision(pilar22, true);
-        agregarObstaculoCircular(-68, -147, 2.2);
-    });
-
-    cargarModeloEnSplash("assets/plantarecta.glb", function(modeloplantarecta) {
+    cargarModeloDespuesDelSplash("assets/plantarecta.glb", function(modeloplantarecta) {
         var obj18 = modeloplantarecta.clone(); obj18.scale.set(10, 10, 10); obj18.position.set(-83, 7.5, -135); scene.add(obj18); registrarParaColision(obj18, true);
         var obj19 = modeloplantarecta.clone(); obj19.scale.set(12, 12, 12); obj19.position.set(-112, 7.5, -136); scene.add(obj19); registrarParaColision(obj19, true);
         var obj20 = modeloplantarecta.clone(); obj20.scale.set(13, 13, 13); obj20.position.set(-140, 7.5, -8); scene.add(obj20); registrarParaColision(obj20, true);
         var obj21 = modeloplantarecta.clone(); obj21.scale.set(14, 14, 14); obj21.position.set(-120, 7.5, 19); scene.add(obj21); registrarParaColision(obj21, true);
     });
 
-    cargarModeloEnSplash("assets/llantamaseta.glb", function(modelomaseta) {
+    cargarModeloDespuesDelSplash("assets/llantamaseta.glb", function(modelomaseta) {
         var obj18 = modelomaseta.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-80, 7.5, 23); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-80, 23, 1.5);
         var obj19 = modelomaseta.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-118, 7.5, -40); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-118, -40, 1.5);
         var obj20 = modelomaseta.clone(); obj20.scale.set(6, 6, 6); obj20.position.set(-86, 7.5, -33.5); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-86, -33.5, 1.4);
     });
 
-    cargarModeloEnSplash("assets/otromasetallanta.glb", function(modelomasetaotro) {
+    cargarModeloDespuesDelSplash("assets/otromasetallanta.glb", function(modelomasetaotro) {
         var obj18 = modelomasetaotro.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-88, 7.5, 20); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-88, 20, 1.5);
         var obj19 = modelomasetaotro.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-138, 7.5, -35); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-138, -35, 1.5);
     });
 
-    cargarModeloEnSplash("assets/barandadorada.glb", function(modelodorado) {
-        modelodorado.scale.set(18, 11, 11);
-        [-67, -80, -93, -106, -119, -132, -145].forEach(function(z) {
-            var p = modelodorado.clone(); p.position.set(-142, 14, z); p.rotation.y = Math.PI / 2; scene.add(p);
-            registrarParaColision(p, true);
+    // Audio de fondo y cielos de tarde/noche al final en segundo plano
+    colaSegundoPlano.push(function(done) {
+        audioLoaderUnico.load("assets/mieros.mp3", function(buffer) {
+            sound.setBuffer(buffer);
+            sound.setLoop(true);
+            sound.setVolume(0.28);
+            sincronizarAudioFondoYSirena();
+            done();
+        }, undefined, function() { done(); });
+    });
+
+    ["imagenes/atardecer.jpg", "imagenes/noche.png"].forEach(function(urlCielo) {
+        colaSegundoPlano.push(function(done) {
+            texLoaderUnico.load(urlCielo, function(tex) {
+                if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
+                comprimirTexturaEnCanvas(tex, PERFIL_CALIDAD.maxCieloDim);
+                texturasCieloCache[urlCielo] = tex;
+                done();
+            }, undefined, function() { done(); });
         });
     });
 
-    // Esperar a que TODAS las descargas paralelas lanzadas a la vez terminen
+    // Esperar únicamente a los elementos de la Fase 1 para llegar al 100% y cerrar el Splash
     Promise.all(promesasSplash).then(function() {
         finalizarSplashYEmpezarJuego();
     });
@@ -4009,7 +4074,7 @@ window.addEventListener('wheel', function(e) {
 }, { passive: true });
 
 document.addEventListener('pointerlockchange', function() {
-    locked = (document.pointerLockElement === renderer.domElement);
+    locked = (renderer && document.pointerLockElement === renderer.domElement);
 });
 
 window.addEventListener('click', function(e) {
@@ -4025,6 +4090,7 @@ window.addEventListener('click', function(e) {
 });
 
 function onWindowResize() {
+    if (!camera || !renderer || _contextoWebGLPerdido) return;
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -4033,7 +4099,7 @@ function onWindowResize() {
 var _frameCounter = 0;
 var _projVec = new THREE.Vector3();
 
-// Monitor de FPS en vivo
+// Monitor de FPS en vivo (solo baja de ALTA a MEDIA si una PC de gama alta sufre caídas)
 var _fpsMonitorFrames = 0;
 var _fpsMonitorTime = 0;
 var _bajadasFpsConsecutivas = 0;
@@ -4060,7 +4126,7 @@ function monitorearRendimientoEnVivo(rawDelta) {
                 if (renderer) {
                     renderer.setPixelRatio(tourActivo ? PERFIL_CALIDAD.pixelRatioTour : PERFIL_CALIDAD.pixelRatioJuego);
                 }
-                mostrarHardwareEnSplash();
+                mostrarHardwareEnSplash(true);
                 console.log("⚡ Ajuste automático en vivo a CALIDAD MEDIA.");
             }
         } else {
@@ -4072,7 +4138,7 @@ function monitorearRendimientoEnVivo(rawDelta) {
 function animate() {
     requestAnimationFrame(animate);
 
-    if (monumentoModalActivo) {
+    if (monumentoModalActivo || _contextoWebGLPerdido) {
         return;
     }
 
@@ -4331,9 +4397,11 @@ if (btnSalir) {
         detenerSonidoPasos();
         if (audioSirenaEl) audioSirenaEl.pause();
         if (audioVientoEl) audioVientoEl.pause();
-        sessionStorage.removeItem("historiaCompletada");
-        sessionStorage.removeItem("estadoJugadorPlaza");
-        sessionStorage.removeItem("personajeElegidoPlaza");
+        try {
+            sessionStorage.removeItem("historiaCompletada");
+            sessionStorage.removeItem("estadoJugadorPlaza");
+            sessionStorage.removeItem("personajeElegidoPlaza");
+        } catch (e) {}
         window.location.href = window.location.pathname + "?inicio=" + Date.now();
     });
 }

@@ -75,12 +75,12 @@
             camara: { posicion: new THREE.Vector3(-52, 30, -25), objetivo: new THREE.Vector3(-74, 15, -38) },
             visitado: false
         },
-        {
+       {
             numero: "06",
             audio: "audios/06.mp3",
             titulo: "La Masacre de San Juan en la Plaza (24 de Junio de 1967)",
             imagen: "imagenes/masacre.png",
-            texto: "Tras la Revolución de 1952, la mina fue nacionalizada y pasó a manos de COMIBOL. Sin embargo, la violencia retornó en la madrugada del 24 de junio de 1967, cuando el régimen dictatorial de René Barrientos Ortuño, con apoyo del Alto Mando Militar y asesores de la CIA, perpetró la horrenda Masacre de San Juan. Las tropas atacaron la plaza y, en la misma segunda planta del sindicato, asesinaron a tiros al dirigente minero Rosendo García Maisman. Hasta el día de hoy, el frontis de piedra conserva los impactos de bala como testigos mudos.\n\n[Fuente de imagen: Fotografía actual de la Plaza del Minero. Elaboración propia, 2026].",
+            texto: "Tras la Revolución de 1952, la mina fue nacionalizada y pasó a manos de COMIBOL. Sin embargo, la violencia retornó en la madrugada del 24 de junio de 1967, cuando el régimen dictatorial de René Barrientos Ortuño, con apoyo del Alto Mando Militar y asesores de la CIA, perpetró la horrenda Masacre de San Juan. Las tropas atacaron la plaza y, en la misma segunda planta del sindicato, asesinaron a tiros al dirigente minero Rosendo García Maisman. Hasta el día de hoy, el frontis de piedra conserva los impactos de bala como testigos mudos.\n\n[Texto, crónica histórica y fuente fotográfica de la Fundación Juan Muñiz Zapico / Obra de Víctor Montoya: https://www.fundacionjuanmunizzapico.org/CronicasVictorMontoya/8.htm].",
             zona: new THREE.Vector3(-93.5, 7.5, -74),
             camara: { posicion: new THREE.Vector3(-52, 30, -60), objetivo: new THREE.Vector3(-78, 16, -74) },
             visitado: false
@@ -90,7 +90,7 @@
             audio: "audios/07.mp3",
             titulo: "El Cierre Histórico de 1987 y la Relocalización",
             imagen: "imagenes/reco.png",
-            texto: "El Sindicato Mixto de Trabajadores Mineros de Siglo XX, considerado el más combativo del país, resistió por 46 años. Su final llegó en 1987, poco después de que el gobierno de Víctor Paz Estenssoro promulgara el nefasto Decreto Supremo 21060 (agosto de 1985). Tras la histórica 'Marcha por la Vida' en 1986 y el cierre de las operaciones estatales de COMIBOL, miles de mineros fueron despedidos y obligados a abandonar los campamentos en el proceso conocido como la 'relocalización', dejando la imponente sede sindical vacía.\n\n[Fuente de imagen: Vista lateral de la plaza y áreas verdes. Elaboración propia, 2026].",
+            texto: "El Sindicato Mixto de Trabajadores Mineros de Siglo XX, considerado el más combativo del país, resistió por 46 años. Su final llegó en 1987, poco después de que el gobierno de Víctor Paz Estenssoro promulgara el nefasto Decreto Supremo 21060 (agosto de 1985). Tras la histórica 'Marcha por la Vida' en 1986 y el cierre de las operaciones estatales de COMIBOL, miles de mineros fueron despedidos y obligados a abandonar los campamentos en el proceso conocido como la 'relocalización', dejando la imponente sede sindical vacía.\n\n[Crónica y registro fotográfico de archivo de Eju.tv: 'La última movilización minera del siglo XX, 28 años después' — https://eju.tv/2014/08/la-ltima-movilizacin-minera-del-siglo-xx-28-aos-despus/].",
             zona: new THREE.Vector3(-96, 7.5, -105),
             camara: { posicion: new THREE.Vector3(-75, 30, -85), objetivo: new THREE.Vector3(-114, 12, -104) },
             visitado: false
