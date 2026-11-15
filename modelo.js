@@ -1,39 +1,38 @@
 // ====================================================
 // MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
-// VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA EQUILIBRADA / CALIDAD ALTA)
-// + FILTRO EXACTO esIntelHD4000OInferior (HD 4400/4600/520/620 VAN A ALTA)
-// + LUCES EN POSTES IGUALES EN ALTA Y MEDIA + ILUMINACIÓN EQUILIBRADA (SIN SATURAR NI OSCURECER)
-// + CARGA SECUENCIAL 1 POR 1 (ANTI ERR_HTTP2) + SOPORTE DRACO
+// VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA EN LAPTOPS BAJA/MEDIA | ALTA SOLO EN GAMA ALTA)
+// + CARGA 100% COMPLETA EN EL SPLASH (CONCURRENCIA PARALELA 12x + DRACO WASM + PRECOMPILACIÓN)
+// + POSTES SIN LUCES DINÁMICAS (MÁXIMO RENDIMIENTO) + ILUMINACIÓN SUAVIZADA
 // + VIDEOS INFORMATIVOS + SIRENA SINDICAL (G) + LÁMPARA MINERA (L)
 // ====================================================
 
 var scene, camera, renderer, plaza, controles, sound;
 var ambientLight, hemisphereLight, directionalLight, directionalLight2;
-var lucesPostes = [];
-var bulbosPostes = [];
 var objetosDetalleLejano = [];
 var clock = new THREE.Clock();
 
 // ====================================================
-// 💻 DETECTOR AUTOMÁTICO DE HARDWARE (CALIDAD MEDIA vs CALIDAD ALTA)
+// 💻 DETECTOR ESTRICTO DE HARDWARE:
+// - Laptops de gama baja y media (Intel HD/UHD/Iris, Radeon Vega integrada, móviles) -> CALIDAD MEDIA
+// - Solo equipos con GPU dedicada de alta capacidad (GTX/RTX, Radeon RX, Apple M-Series) -> CALIDAD ALTA
 // ====================================================
-var ES_CALIDAD_MEDIA = false;
+var ES_CALIDAD_MEDIA = true;
 var PERFIL_CALIDAD = {
-    nivel: 'ALTA',
-    etiquetaSplash: '🖥️ Hardware detectado • Gráficos: CALIDAD ALTA',
+    nivel: 'MEDIA',
+    etiquetaSplash: '🖥️ Hardware detectado • Gráficos: CALIDAD MEDIA',
     gpuNombreCorto: '',
-    pixelRatioTour: 0.95,
-    pixelRatioJuego: 1.0,
-    precisionShader: 'highp',
-    comprimirTexturas: false,
-    maxTexDim: 2048,
-    maxCieloDim: 2048,
-    maxNormalDim: 1024,
+    pixelRatioTour: 0.85,
+    pixelRatioJuego: 0.90,
+    precisionShader: 'mediump',
+    comprimirTexturas: true,
+    maxTexDim: 1024,
+    maxCieloDim: 1536,
+    maxNormalDim: 512,
     mantenerNormalMaps: true,
-    anisotropiaMax: 4,
-    cullingTourSq: 115 * 115,
-    cullingJuegoSq: 145 * 145,
-    farCamera: 550
+    anisotropiaMax: 2,
+    cullingTourSq: 95 * 95,
+    cullingJuegoSq: 125 * 125,
+    farCamera: 520
 };
 
 function limpiarNombreGPU(rawRenderer) {
@@ -54,7 +53,7 @@ function mostrarHardwareEnSplash() {
 
     var badge = document.getElementById('splash-hardware-info');
     if (!badge) {
-        badge = document.createElement('div');
+        badge = document.createElement('div'); // <-- Corregido (eliminado document.getElement)
         badge.id = 'splash-hardware-info';
         badge.style.cssText =
             'margin-top: 14px; display: inline-block; padding: 6px 16px; border-radius: 20px; ' +
@@ -77,8 +76,9 @@ function mostrarHardwareEnSplash() {
 
 function detectarPerfilHardware() {
     var esMovil = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
-    var esIntelHD4000OInferior = false;
-    var gpuDedicadaOModerna = false;
+    var nucleosCPU = navigator.hardwareConcurrency || 4;
+    var memoriaRAM = navigator.deviceMemory || 8;
+    var esEquipoAltaCapacidad = false;
     var nombreGpuDetectado = '';
 
     try {
@@ -91,44 +91,28 @@ function detectarPerfilHardware() {
                 nombreGpuDetectado = limpiarNombreGPU(rendererRaw);
                 var rendererStr = rendererRaw.toLowerCase();
 
-                // 1. Detectar GPUs dedicadas o integradas modernas (Intel HD 4400, 4600, 500+, 600+, UHD, Iris, NVIDIA, AMD, Apple)
-                if (/nvidia|geforce|rtx|gtx|radeon|amd|iris|uhd|apple m[1-9]|hd graphics (4[46]00|5\d\d|6\d\d|p\d+)/i.test(rendererStr)) {
-                    gpuDedicadaOModerna = true;
-                }
+                // 1. Detectar GPUs integradas de laptop (Baja y Media capacidad) -> SIEMPRE van a CALIDAD MEDIA
+                var esIntegradaBajaOMedia =
+                    /intel.*(hd|uhd|iris)|hd graphics|uhd graphics|iris\(r\)|iris plus|iris xe/i.test(rendererStr) ||
+                    /radeon\(tm\)\s*(vega|graphics|r[234567]\b)|amd\s*radeon\(tm\)\s*graphics/i.test(rendererStr) ||
+                    /celeron|pentium|gma|mesa|llvmpipe|swiftshader|mali|adreno|powervr/i.test(rendererStr) ||
+                    /geforce\s*(mx[12345]\d\d|9[1234]0m|8[1234]0m|gt\s*[67]\d\d)/i.test(rendererStr);
 
-                // 2. Filtro exacto: SOLO Intel HD 4000 o modelos anteriores (2000, 2500, 3000) o gráficos muy antiguos
-                if (!gpuDedicadaOModerna && (
-                    /hd graphics\s*(2000|2500|3000|4000)\b/i.test(rendererStr) ||
-                    /intel\(r\)\s*hd graphics\b(?!\s*(4[246]00|5\d\d|6\d\d))/i.test(rendererStr) ||
-                    /celeron|pentium|gma|mesa|llvmpipe|swiftshader|mali-4|adreno \(tm\) [23]/i.test(rendererStr)
-                )) {
-                    esIntelHD4000OInferior = true;
+                // 2. Detectar GPUs Dedicadas de ALTA CAPACIDAD (NVIDIA GTX/RTX, AMD Radeon RX, Intel Arc, Apple M1/M2/M3/M4)
+                var esGpuDedicadaAlta =
+                    /rtx\s*\d+|gtx\s*(10[5678]\d|16[56]\d|9[678]0)|geforce\s*rtx|geforce\s*gtx/i.test(rendererStr) ||
+                    /radeon\s*rx\s*\d+|radeon\s*pro\s*\w+|arc\(tm\)\s*a\d+/i.test(rendererStr) ||
+                    /apple\s*m[1-9]/i.test(rendererStr);
+
+                if (esGpuDedicadaAlta && !esIntegradaBajaOMedia && !esMovil && nucleosCPU >= 6 && memoriaRAM >= 8) {
+                    esEquipoAltaCapacidad = true;
                 }
             }
         }
     } catch (e) {}
 
-    // 👉 CALIDAD MEDIA (Un poco más ligera para dar mayor fluidez en Intel HD 4000, pero manteniendo nitidez y luces)
-    if (esIntelHD4000OInferior || (esMovil && !gpuDedicadaOModerna)) {
-        ES_CALIDAD_MEDIA = true;
-        PERFIL_CALIDAD = {
-            nivel: 'MEDIA',
-            gpuNombreCorto: nombreGpuDetectado,
-            pixelRatioTour: 0.86,
-            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 0.90),
-            precisionShader: 'mediump',
-            comprimirTexturas: true,
-            maxTexDim: 1280,
-            maxCieloDim: 1536,
-            maxNormalDim: 768,
-            mantenerNormalMaps: true,
-            anisotropiaMax: 2,
-            cullingTourSq: 95 * 95,
-            cullingJuegoSq: 125 * 125,
-            farCamera: 525
-        };
-    } else {
-        // 👉 CALIDAD ALTA (Intel HD 4400/4600/520/620/UHD/Iris, AMD Radeon y NVIDIA GeForce/RTX)
+    // 👉 CALIDAD ALTA: Únicamente para equipos de alta capacidad con GPU dedicada potente
+    if (esEquipoAltaCapacidad) {
         ES_CALIDAD_MEDIA = false;
         PERFIL_CALIDAD = {
             nivel: 'ALTA',
@@ -142,13 +126,32 @@ function detectarPerfilHardware() {
             maxNormalDim: 1024,
             mantenerNormalMaps: true,
             anisotropiaMax: 4,
-            cullingTourSq: 115 * 115,
-            cullingJuegoSq: 145 * 145,
+            cullingTourSq: 120 * 120,
+            cullingJuegoSq: 150 * 150,
             farCamera: 550
+        };
+    } else {
+        // 👉 CALIDAD MEDIA: Para laptops de gama baja y media (Intel HD/UHD/Iris, Vega integrada, etc.)
+        ES_CALIDAD_MEDIA = true;
+        PERFIL_CALIDAD = {
+            nivel: 'MEDIA',
+            gpuNombreCorto: nombreGpuDetectado,
+            pixelRatioTour: 0.85,
+            pixelRatioJuego: Math.min(window.devicePixelRatio || 1, 0.90),
+            precisionShader: 'mediump',
+            comprimirTexturas: true,
+            maxTexDim: 1024,
+            maxCieloDim: 1536,
+            maxNormalDim: 512,
+            mantenerNormalMaps: true,
+            anisotropiaMax: 2,
+            cullingTourSq: 95 * 95,
+            cullingJuegoSq: 125 * 125,
+            farCamera: 520
         };
     }
 
-    console.log("🖥️ Hardware detectado:", nombreGpuDetectado || "Estándar", "-> Nivel: CALIDAD " + PERFIL_CALIDAD.nivel);
+    console.log("🖥️ Hardware detectado:", nombreGpuDetectado || "Integrado/Estándar", "-> Nivel asignado: CALIDAD " + PERFIL_CALIDAD.nivel);
     mostrarHardwareEnSplash();
 }
 
@@ -160,44 +163,6 @@ var monumentoModalActivo = false;
 var monumentoIframeOverlay = null;
 var texturasCieloCache = {};
 var modoAtmosferaActual = 'dia';
-
-// ====================================================
-// 💡 CONTROL DE LUCES DE LOS POSTES (IGUAL EN CALIDAD ALTA Y MEDIA)
-// ====================================================
-function actualizarIntensidadLucesPostes(modo) {
-    var intensidadObjetivo = 0;
-    var colorLuz = 0xffe29a;
-    var colorBulbo = 0xfffae6;
-
-    if (modo === 'dia') {
-        intensidadObjetivo = 0.25;
-        colorLuz = 0xfff3d1;
-        colorBulbo = 0xfffae6;
-    } else if (modo === 'atardecer' || modo === 'tarde') {
-        intensidadObjetivo = 1.15;
-        colorLuz = 0xffd27d;
-        colorBulbo = 0xffe082;
-    } else if (modo === 'noche' || modo === 'nublado') {
-        intensidadObjetivo = 1.85;
-        colorLuz = 0xffe49e;
-        colorBulbo = 0xfff099;
-    }
-
-    for (var i = 0; i < lucesPostes.length; i++) {
-        var lp = lucesPostes[i];
-        if (lp) {
-            lp.color.setHex(colorLuz);
-            lp.intensity = intensidadObjetivo;
-        }
-    }
-
-    for (var j = 0; j < bulbosPostes.length; j++) {
-        var b = bulbosPostes[j];
-        if (b && b.material) {
-            b.material.color.setHex(colorBulbo);
-        }
-    }
-}
 
 // ====================================================
 // 🔦 VARIABLES DE LA LINTERNA DEL GUARDATOJO (TECLA L)
@@ -241,7 +206,7 @@ window.ESTACIONES_VIDEOS = [
         fuente: "Proyecto FRK (@proyecto_frk). Documental corto sobre el Sindicato de Siglo XX y Radio La Voz del Minero (TikTok).",
         urlOriginal: "https://www.tiktok.com/@proyecto_frk/video/7451396319442210053?_r=1&_t=ZS-9BN5YoyTpmE",
         rutas: ["videos/video1.mp4", "audios/video1.mp4", "assets/video1.mp4", "audios/video1.mp3", "videos/video1.mp3"],
-        zona: new THREE.Vector3(-65, 15, 100),
+        zona: new THREE.Vector3(-65, 15, 130),
         visitado: false
     },
     {
@@ -673,8 +638,8 @@ window.alternarLinternaGuardatojo = function(e) {
     if (linternaSpotLight && linternaHaloLight) {
         if (linternaActiva) {
             var esNoche = (modoAtmosferaActual === 'noche' || modoAtmosferaActual === 'nublado');
-            linternaSpotLight.intensity = esNoche ? 3.2 : 2.0;
-            linternaHaloLight.intensity = esNoche ? 1.2 : 0.65;
+            linternaSpotLight.intensity = esNoche ? 2.85 : 1.75;
+            linternaHaloLight.intensity = esNoche ? 1.05 : 0.55;
             mostrarAvisoLinternaGuardatojo('🔦 Lámpara minera del guardatojo <b style="color:#4ade80;">ENCENDIDA</b>', 2400);
         } else {
             linternaSpotLight.intensity = 0;
@@ -997,8 +962,12 @@ window.cerrarVideoPunto = function() {
 };
 
 // ====================================================
-// GESTIÓN ADAPTATIVA DE TEXTURAS, MATERIALES Y DRACO
+// GESTIÓN ADAPTATIVA DE TEXTURAS, MATERIALES Y DRACO WASM
 // ====================================================
+if (THREE.Cache) {
+    THREE.Cache.enabled = true;
+}
+
 var _dracoLoaderGlobal = null;
 var _texturasOptimizadasCache = new WeakMap();
 
@@ -1006,7 +975,10 @@ function obtenerDracoLoader() {
     if (!_dracoLoaderGlobal && typeof THREE.DRACOLoader !== 'undefined') {
         _dracoLoaderGlobal = new THREE.DRACOLoader();
         _dracoLoaderGlobal.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-        _dracoLoaderGlobal.setDecoderConfig({ type: 'js' });
+        _dracoLoaderGlobal.setDecoderConfig({ type: (typeof WebAssembly === 'object') ? 'wasm' : 'js' });
+        if (typeof _dracoLoaderGlobal.preload === 'function') {
+            _dracoLoaderGlobal.preload();
+        }
     }
     return _dracoLoaderGlobal;
 }
@@ -1060,7 +1032,6 @@ function mejorarCalidadMaterial(material) {
         var m = mats[i];
         if (!m) continue;
 
-        // Evita que los materiales metálicos oscurezcan los monumentos o se vean saturados
         if (typeof m.metalness === 'number' && m.metalness > 0.35) {
             m.metalness = 0.25;
         }
@@ -1069,12 +1040,11 @@ function mejorarCalidadMaterial(material) {
         }
 
         if (ES_CALIDAD_MEDIA) {
-            // CALIDAD MEDIA REDUCIDA UN POCO: Texturas a 1280px, conserva normalMap a 768px y libera mapas extra
             if (m.map) {
                 comprimirTexturaEnCanvas(m.map, PERFIL_CALIDAD.maxTexDim);
             }
             if (m.normalMap) {
-                comprimirTexturaEnCanvas(m.normalMap, PERFIL_CALIDAD.maxNormalDim || 768);
+                comprimirTexturaEnCanvas(m.normalMap, PERFIL_CALIDAD.maxNormalDim || 512);
             }
             if (m.roughnessMap) { m.roughnessMap.dispose(); m.roughnessMap = null; }
             if (m.metalnessMap) { m.metalnessMap.dispose(); m.metalnessMap = null; }
@@ -1083,7 +1053,6 @@ function mejorarCalidadMaterial(material) {
             m.precision = PERFIL_CALIDAD.precisionShader;
             m.needsUpdate = true;
         } else {
-            // CALIDAD ALTA: Texturas originales intactas
             if (m.map) {
                 m.map.anisotropy = maxAnisotropy;
             }
@@ -1110,7 +1079,7 @@ function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
         loader.load(rutaActual, function(gltf) {
             onSuccess(gltf, rutaActual);
         }, undefined, function() {
-            setTimeout(intentarSiguiente, 150);
+            setTimeout(intentarSiguiente, 100);
         });
     }
 
@@ -1224,14 +1193,14 @@ function inicializarVisorPreview3D(tipo, canvasId) {
     var pScene = new THREE.Scene();
     var pCamera = new THREE.PerspectiveCamera(34, w / h, 0.1, 200);
 
-    var amb = new THREE.AmbientLight(0xffffff, 1.15);
+    var amb = new THREE.AmbientLight(0xffffff, 1.02);
     pScene.add(amb);
 
-    var dirFront = new THREE.DirectionalLight(0xfff4d6, 1.35);
+    var dirFront = new THREE.DirectionalLight(0xfff4d6, 1.18);
     dirFront.position.set(5, 12, 18);
     pScene.add(dirFront);
 
-    var dirRim = new THREE.DirectionalLight(0x4ade80, 0.55);
+    var dirRim = new THREE.DirectionalLight(0x4ade80, 0.48);
     dirRim.position.set(-8, 8, -12);
     pScene.add(dirRim);
 
@@ -2648,7 +2617,7 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// INICIALIZACIÓN DE LA ESCENA (ILUMINACIÓN EQUILIBRADA Y LUCES EN AMBAS CALIDADES)
+// INICIALIZACIÓN DE LA ESCENA (CARGA 100% EN SPLASH + CONCURRENCIA 12x)
 // ====================================================
 function init() {
     mostrarHardwareEnSplash();
@@ -2675,7 +2644,7 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(PERFIL_CALIDAD.pixelRatioTour);
     renderer.toneMapping = THREE.LinearToneMapping;
-    renderer.toneMappingExposure = 1.02; 
+    renderer.toneMappingExposure = 0.94; 
     renderer.gammaOutput = true;
     renderer.gammaFactor = 2.15;
     renderer.shadowMap.enabled = false;
@@ -2694,19 +2663,19 @@ function init() {
     camera.add(listener);
     sound = new THREE.Audio(listener);
     
-    ambientLight = new THREE.AmbientLight(0xf7f9fc, 0.96);
+    ambientLight = new THREE.AmbientLight(0xf7f9fc, 0.84);
     scene.add(ambientLight);
     
-    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x6e655f, 0.85);
+    hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x6e655f, 0.74);
     scene.add(hemisphereLight);
     
-    directionalLight = new THREE.DirectionalLight(0xfff5e4, 1.08);
+    directionalLight = new THREE.DirectionalLight(0xfff5e4, 0.95);
     directionalLight.position.set(60, 140, 80);
     directionalLight.castShadow = false;
     directionalLight.updateMatrixWorld(true);
     scene.add(directionalLight);
 
-    directionalLight2 = new THREE.DirectionalLight(0xdbeafe, 0.42);
+    directionalLight2 = new THREE.DirectionalLight(0xdbeafe, 0.36);
     directionalLight2.position.set(-90, 95, -90);
     directionalLight2.castShadow = false;
     directionalLight2.updateMatrixWorld(true);
@@ -2732,25 +2701,32 @@ function init() {
     construirEstacionesYCamino();
 
     // ====================================================
-    // SISTEMA DE COLA SECUENCIAL (1 POR 1) Y SPLASH CON HARDWARE DETECTADO
+    // 🚀 SISTEMA DE CARGA 100% EN EL SPLASH (CONCURRENCIA PARALELA 12x)
+    // Carga 12 objetos a la vez dentro del splash para entrar mucho más rápido con TODO cargado
     // ====================================================
     var cargar = crearGLTFLoaderOptimizado();
-    var colaTareasCarga = [];
-    var totalTareasCarga = 0;
-    var tareasCompletadas = 0;
+    var colaCargaSplash = [];
+    var totalTareasSplash = 0;
+    var tareasSplashCompletadas = 0;
+    var splashYaFinalizado = false;
+    var MAX_CONCURRENCIA = 12; // 12 objetos descargándose al mismo tiempo en el splash
+    var descargasActivas = 0;
 
-    function actualizarBarraProgresoSplash(subProgreso) {
+    function actualizarBarraProgresoSplash() {
+        if (splashYaFinalizado) return;
         var progressBar = document.getElementById('progress-bar'); 
         var progressText = document.getElementById('progress-text');
-        if (totalTareasCarga > 0) {
-            var avance = tareasCompletadas + (subProgreso || 0);
-            var porcentaje = Math.min(100, Math.round((avance / totalTareasCarga) * 100));
+        if (totalTareasSplash > 0) {
+            var porcentaje = Math.min(100, Math.round((tareasSplashCompletadas / totalTareasSplash) * 100));
             if (progressBar) progressBar.style.width = porcentaje + '%';
             if (progressText) progressText.innerText = porcentaje + '%';
         }
     }
 
     function finalizarSplashYEmpezarJuego() {
+        if (splashYaFinalizado) return;
+        splashYaFinalizado = true;
+
         var progressBar = document.getElementById('progress-bar'); 
         var progressText = document.getElementById('progress-text');
         if (progressBar) progressBar.style.width = '100%';
@@ -2767,6 +2743,11 @@ function init() {
                 congelarObjetoEstatico(videoRings[v].group);
             }
             congelarObjetoEstatico(videoRingsGroup);
+        }
+
+        // Precompilar todos los shaders de la escena en la GPU antes de quitar el splash
+        if (renderer && typeof renderer.compile === 'function') {
+            try { renderer.compile(scene, camera); } catch (e) {}
         }
 
         var loaderContainer = document.getElementById("loader-container");
@@ -2818,24 +2799,14 @@ function init() {
         }
     }
 
-    function procesarSiguienteEnCola() {
-        if (colaTareasCarga.length === 0) {
-            finalizarSplashYEmpezarJuego();
-            return;
-        }
-
-        var tarea = colaTareasCarga.shift();
-        actualizarBarraProgresoSplash(0);
-
+    function ejecutarTarea(tarea, alTerminar) {
         if (tarea.tipo === 'textura') {
             var texLoader = new THREE.TextureLoader();
             texLoader.load(tarea.url, function(texture) {
                 tarea.onLoad(texture);
-                tareasCompletadas++;
-                setTimeout(procesarSiguienteEnCola, 25);
+                alTerminar();
             }, undefined, function() {
-                tareasCompletadas++;
-                setTimeout(procesarSiguienteEnCola, 25);
+                alTerminar();
             });
             return;
         }
@@ -2844,11 +2815,9 @@ function init() {
             var audioLoader = new THREE.AudioLoader();
             audioLoader.load(tarea.url, function(buffer) {
                 tarea.onLoad(buffer);
-                tareasCompletadas++;
-                setTimeout(procesarSiguienteEnCola, 25);
+                alTerminar();
             }, undefined, function() {
-                tareasCompletadas++;
-                setTimeout(procesarSiguienteEnCola, 25);
+                alTerminar();
             });
             return;
         }
@@ -2866,22 +2835,16 @@ function init() {
                     } catch (errProc) {
                         console.warn("Error procesando " + tarea.url, errProc);
                     }
-                    tareasCompletadas++;
-                    setTimeout(procesarSiguienteEnCola, ES_CALIDAD_MEDIA ? 35 : 25);
+                    alTerminar();
                 },
-                function(xhr) {
-                    if (xhr && xhr.lengthComputable && xhr.total > 0) {
-                        actualizarBarraProgresoSplash((xhr.loaded / xhr.total) * 0.9);
-                    }
-                },
+                undefined,
                 function(error) {
                     if (intentos < maxIntentos) {
                         console.warn("Reintentando (" + intentos + "/" + maxIntentos + "): " + tarea.url);
-                        setTimeout(intentarDescargaGLB, 350 * intentos);
+                        setTimeout(intentarDescargaGLB, 150 * intentos);
                     } else {
                         console.error("No se pudo cargar tras " + maxIntentos + " intentos: " + tarea.url, error);
-                        tareasCompletadas++;
-                        setTimeout(procesarSiguienteEnCola, 35);
+                        alTerminar();
                     }
                 }
             );
@@ -2890,8 +2853,29 @@ function init() {
         intentarDescargaGLB();
     }
 
+    function bombearColaDescargas() {
+        if (colaCargaSplash.length === 0 && tareasSplashCompletadas >= totalTareasSplash && !splashYaFinalizado) {
+            finalizarSplashYEmpezarJuego();
+            return;
+        }
+
+        while (descargasActivas < MAX_CONCURRENCIA && colaCargaSplash.length > 0) {
+            var siguienteTarea = colaCargaSplash.shift();
+            descargasActivas++;
+
+            (function(t) {
+                ejecutarTarea(t, function() {
+                    descargasActivas--;
+                    tareasSplashCompletadas++;
+                    actualizarBarraProgresoSplash();
+                    bombearColaDescargas();
+                });
+            })(siguienteTarea);
+        }
+    }
+
     function encolarGLB(url, callbackExito, esGltfCompleto) {
-        colaTareasCarga.push({
+        colaCargaSplash.push({
             tipo: 'glb',
             url: url,
             onLoad: function(gltf) {
@@ -2913,12 +2897,12 @@ function init() {
         });
     }
 
-    function cargarModeloSeguro(url, callbackExito) {
+    function cargarModeloEnSplash(url, callbackExito) {
         encolarGLB(url, callbackExito, false);
     }
 
-    // 0. ENCOLAR CIELO Y MÚSICA
-    colaTareasCarga.push({
+    // 0. ENCOLAR CIELO Y MÚSICA EN EL SPLASH
+    colaCargaSplash.push({
         tipo: 'textura',
         url: "imagenes/cielo.jpg",
         onLoad: function(texture) {
@@ -2929,7 +2913,7 @@ function init() {
         }
     });
 
-    colaTareasCarga.push({
+    colaCargaSplash.push({
         tipo: 'audio',
         url: 'assets/mieros.mp3',
         onLoad: function(buffer) {
@@ -2941,7 +2925,7 @@ function init() {
     });
 
     // ====================================================
-    // 1. CARGAR PISO.GLB
+    // 1. CARGAR PISO.GLB Y PERSONAJE EN EL SPLASH
     // ====================================================
     encolarGLB("assets/piso.glb", function(gltf) {
         plaza = gltf.scene;
@@ -2981,87 +2965,64 @@ function init() {
         congelarObjetoEstatico(plaza);
     }, true);
 
-    // ====================================================
-    // 1.B PRE-CARGAR MODELO BASE DEL MINERO
-    // ====================================================
     encolarGLB("assets/personaje.glb", function(gltf) {
         aplicarGltfAlPersonaje(gltf, 'minero');
         characterGroup.visible = false;
     }, true);
 
     // ====================================================
-    // 2. MONUMENTOS Y PEDESTALES
+    // 2. MONUMENTOS Y PEDESTALES EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/Pedestalirineo.glb", function(est1) { 
+    cargarModeloEnSplash("assets/Pedestalirineo.glb", function(est1) { 
         est1.scale.set(3.5, 3.5, 3.5); est1.position.set(-73, 3.5, 22); scene.add(est1); 
         registrarParaColision(est1, true);
         agregarObstaculoCircular(-73, 22, 2.4);
     });
-    cargarModeloSeguro("assets/Pedestalfederico.glb", function(est2) { 
+    cargarModeloEnSplash("assets/Pedestalfederico.glb", function(est2) { 
         est2.scale.set(3.5, 3.5, 3.5); est2.position.set(-73, 3.3, 11); scene.add(est2); 
         registrarParaColision(est2, true);
         agregarObstaculoCircular(-73, 11, 2.4);
     });
-    cargarModeloSeguro("assets/Pedestalescobar.glb", function(est3) { 
+    cargarModeloEnSplash("assets/Pedestalescobar.glb", function(est3) { 
         est3.scale.set(3.5, 3.5, 3.5); est3.position.set(-74, 3.5, -38); scene.add(est3); 
         registrarParaColision(est3, true);
         agregarObstaculoCircular(-74, -38, 2.4);
     });
-    cargarModeloSeguro("assets/Palliri.glb", function(est4) { 
+    cargarModeloEnSplash("assets/Palliri.glb", function(est4) { 
         est4.scale.set(4, 4, 4); est4.position.set(-78, 11, -74); est4.rotation.set(0, Math.PI / 2, 0); scene.add(est4); 
         registrarParaColision(est4, true);
         agregarObstaculoCircular(-78, -74, 3.0);
     });
-    cargarModeloSeguro("assets/completomina.glb", function(est6) { 
+    cargarModeloEnSplash("assets/completomina.glb", function(est6) { 
         est6.scale.set(10, 10, 10); est6.position.set(-111.5, 19, -13); est6.rotation.set(0, Math.PI / 2, 0); scene.add(est6); 
         registrarParaColision(est6, true);
         agregarObstaculoCircular(-111.5, -13, 5.8);
     });
     
     // ====================================================
-    // 3. POSTES DE ALUMBRADO (CON LUZ ACTIVA EN CALIDAD ALTA Y EN CALIDAD MEDIA)
+    // 3. POSTES DE ALUMBRADO EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/poste.glb", function(modeloBase) {
+    cargarModeloEnSplash("assets/poste.glb", function(modeloBase) {
         modeloBase.scale.set(8.5, 8.5, 8.5);
-        var geometriaEsfera = new THREE.SphereGeometry(0.85, 8, 8);
-        var materialEsfera = new THREE.MeshBasicMaterial({ color: 0xfffae6 });
 
-        function crearPosteConLuz(x, y, z) {
+        function crearPoste(x, y, z) {
             var posteClonado = modeloBase.clone();
-            var bolitaLuz = new THREE.Mesh(geometriaEsfera, materialEsfera.clone());
-            bolitaLuz.position.set(0, 18, 0);
-
-            var luzFarola = new THREE.PointLight(0xffe29a, 0.25, 42, 1.6);
-            luzFarola.position.set(0, 17.5, 0);
-            luzFarola.castShadow = false;
-
-            var grupoPoste = new THREE.Group();
-            grupoPoste.add(posteClonado);
-            grupoPoste.add(bolitaLuz);
-            grupoPoste.add(luzFarola);
-            grupoPoste.position.set(x, y, z);
-            scene.add(grupoPoste);
-            congelarObjetoEstatico(grupoPoste);
-
-            bulbosPostes.push(bolitaLuz);
-            lucesPostes.push(luzFarola);
-
+            posteClonado.position.set(x, y, z);
+            scene.add(posteClonado);
             registrarParaColision(posteClonado, true);
             agregarObstaculoCircular(x, z, 1.35);
         }
 
-        crearPosteConLuz(-52, 7, 30); crearPosteConLuz(-52, 7, -5); crearPosteConLuz(-52, 7, -35);
-        crearPosteConLuz(-52, 7, -65); crearPosteConLuz(-52, 7, -95); crearPosteConLuz(-25, 1.4, 79);
-        crearPosteConLuz(-89.5, 7, -93.5); crearPosteConLuz(-89, 7, -117); crearPosteConLuz(-52, 7, -120);
-        crearPosteConLuz(-130, 7, -150); crearPosteConLuz(-135, 7, -103); crearPosteConLuz(-52, 7, -150);
-
-        actualizarIntensidadLucesPostes(modoAtmosferaActual);
+        crearPoste(-52, 7, 30); crearPoste(-52, 7, -5); crearPoste(-52, 7, -35);
+        crearPoste(-52, 7, -65); crearPoste(-52, 7, -95); crearPoste(-25, 1.4, 79);
+        crearPoste(-89.5, 7, -93.5); crearPoste(-89, 7, -117); crearPoste(-52, 7, -120);
+        crearPoste(-130, 7, -150); crearPoste(-135, 7, -103); crearPoste(-52, 7, -150);
     });
 
     // ====================================================
-    // 4. BANCAS VERDES
+    // 4. BANCAS VERDES EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/bancaverde.glb", function(modeloBanca) {
+    cargarModeloEnSplash("assets/bancaverde.glb", function(modeloBanca) {
         modeloBanca.scale.set(11, 11, 10);
         var obj7 = modeloBanca.clone(); obj7.position.set(-77.5, 8, -60); scene.add(obj7); registrarParaColision(obj7, true); agregarObstaculoCircular(-77.5, -60, 2.3);
         var obj8 = modeloBanca.clone(); obj8.position.set(-77.5, 8, -88.5); obj8.rotation.y += Math.PI; scene.add(obj8); registrarParaColision(obj8, true); agregarObstaculoCircular(-77.5, -88.5, 2.3);
@@ -3076,9 +3037,9 @@ function init() {
     });
 
     // ====================================================
-    // 4.B ÁRBOLES, PLANTAS, LETRAS Y PILARES
+    // 4.B ÁRBOLES, PLANTAS, LETRAS Y PILARES EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/arbol.glb", function(modeloArbol) {
+    cargarModeloEnSplash("assets/arbol.glb", function(modeloArbol) {
         modeloArbol.scale.set(35, 35, 35);
         var obj40 = modeloArbol.clone(); obj40.position.set(-105, 8, 20); scene.add(obj40); congelarObjetoEstatico(obj40); agregarObstaculoCircular(-105, 20, 1.8);
         var obj41 = modeloArbol.clone(); obj41.position.set(-105, 8, -38); scene.add(obj41); congelarObjetoEstatico(obj41); agregarObstaculoCircular(-105, -38, 1.8);
@@ -3086,21 +3047,21 @@ function init() {
         var obj43 = modeloArbol.clone(); obj43.position.set(-86, 8, -120); scene.add(obj43); congelarObjetoEstatico(obj43); agregarObstaculoCircular(-86, -120, 1.8);
     });
 
-    cargarModeloSeguro("assets/planta.glb", function(modeloPlanta) {
+    cargarModeloEnSplash("assets/planta.glb", function(modeloPlanta) {
         modeloPlanta.scale.set(6, 7, 6);
         var obj40 = modeloPlanta.clone(); obj40.position.set(-85, 7, -82); scene.add(obj40); congelarObjetoEstatico(obj40); objetosDetalleLejano.push(obj40); agregarObstaculoCircular(-85, -82, 1.4);
         var obj41 = modeloPlanta.clone(); obj41.position.set(-120, 7, -70); scene.add(obj41); congelarObjetoEstatico(obj41); objetosDetalleLejano.push(obj41); agregarObstaculoCircular(-120, -70, 1.4);
         var obj42 = modeloPlanta.clone(); obj42.scale.set(8, 8, 8); obj42.position.set(-123, 7.5, -147); scene.add(obj42); congelarObjetoEstatico(obj42); objetosDetalleLejano.push(obj42); agregarObstaculoCircular(-123, -147, 1.6);
     });
 
-    cargarModeloSeguro("assets/letrasiglo.glb", function(modeloletra) {
+    cargarModeloEnSplash("assets/letrasiglo.glb", function(modeloletra) {
         modeloletra.scale.set(24, 24, 24);
         var obj40 = modeloletra.clone(); obj40.position.set(-78, 8, -133); obj40.rotation.set(0, Math.PI / -2, 0); scene.add(obj40);
         registrarParaColision(obj40, true);
         agregarObstaculoCircular(-78, -133, 2.5);
     });
     
-    cargarModeloSeguro("assets/pilar.glb", function(modelopilar) {
+    cargarModeloEnSplash("assets/pilar.glb", function(modelopilar) {
         modelopilar.scale.set(9, 12, 12);
         var pilar22 = modelopilar.clone(); pilar22.position.set(-105, 10.5, 0.5); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22); registrarParaColision(pilar22, true); agregarObstaculoCircular(-105, 0.5, 1.4);
         var pilar23 = modelopilar.clone(); pilar23.position.set(-116.9, 10.5, 0.5); pilar23.rotation.y = Math.PI / 2; scene.add(pilar23); registrarParaColision(pilar23, true); agregarObstaculoCircular(-116.9, 0.5, 1.4);
@@ -3113,9 +3074,9 @@ function init() {
     });
     
     // ====================================================
-    // 5. SILLAS DE GOMA
+    // 5. SILLAS DE GOMA EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/sillagoma.glb", function(modeloSilla) {
+    cargarModeloEnSplash("assets/sillagoma.glb", function(modeloSilla) {
         modeloSilla.scale.set(6, 6.5, 6);
         var obj14 = modeloSilla.clone(); obj14.position.set(-61.5, 7, 23); obj14.rotation.y = Math.PI; scene.add(obj14); registrarParaColision(obj14, true); objetosDetalleLejano.push(obj14); agregarObstaculoCircular(-61.5, 23, 1.5);
         var silla2 = modeloSilla.clone(); silla2.position.set(-61.5, 7, 10); silla2.rotation.y = Math.PI; scene.add(silla2); registrarParaColision(silla2, true); objetosDetalleLejano.push(silla2); agregarObstaculoCircular(-61.5, 10, 1.5);
@@ -3126,9 +3087,9 @@ function init() {
     });
 
     // ====================================================
-    // 6. BARANDAS DE LA PLAZA
+    // 6. BARANDAS DE LA PLAZA EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/barandasplaza.glb", function(modeloBaranda) {
+    cargarModeloEnSplash("assets/barandasplaza.glb", function(modeloBaranda) {
         var obj8 = modeloBaranda.clone(); obj8.scale.set(6, 7, 8.5); obj8.position.set(-65, 8.6, 30); obj8.rotation.set(0, Math.PI / 2, 0); scene.add(obj8); registrarParaColision(obj8, true);
         var obj9 = modeloBaranda.clone(); obj9.scale.set(6, 7, 8.5); obj9.position.set(-96.3, 8.6, 30); obj9.rotation.set(0, Math.PI / 2, 0); scene.add(obj9); registrarParaColision(obj9, true);
         var obj10 = modeloBaranda.clone(); obj10.scale.set(6, 7, 7.5); obj10.position.set(-65, 8.6, 30); scene.add(obj10); registrarParaColision(obj10, true);
@@ -3186,9 +3147,9 @@ function init() {
     });
 
     // ====================================================
-    // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS
+    // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/planta1.glb", function(modeloplanta1) {
+    cargarModeloEnSplash("assets/planta1.glb", function(modeloplanta1) {
         var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -70, 1.2);
         var obj19 = modeloplanta1.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-105, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-105, -70, 1.2);
         var obj20 = modeloplanta1.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-83, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-83, -40, 1.2);
@@ -3197,7 +3158,7 @@ function init() {
         var obj23 = modeloplanta1.clone(); obj23.scale.set(8, 8, 8); obj23.position.set(-121, 7.5, -134); scene.add(obj23); congelarObjetoEstatico(obj23); objetosDetalleLejano.push(obj23); agregarObstaculoCircular(-121, -134, 1.2);
     });
 
-    cargarModeloSeguro("assets/planta3.glb", function(modeloplanta3) {
+    cargarModeloEnSplash("assets/planta3.glb", function(modeloplanta3) {
         var obj18 = modeloplanta3.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -76.5); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -76.5, 1.1);
         var obj19 = modeloplanta3.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-113, 7.5, -70); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-113, -70, 1.1);
         var obj20 = modeloplanta3.clone(); obj20.scale.set(7, 7, 7); obj20.position.set(-90, 7.5, -40); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-90, -40, 1.1);
@@ -3210,7 +3171,7 @@ function init() {
         var obj27 = modeloplanta3.clone(); obj27.scale.set(7, 7, 7); obj27.position.set(-68, 7.5, -120); scene.add(obj27); congelarObjetoEstatico(obj27); objetosDetalleLejano.push(obj27); agregarObstaculoCircular(-68, -120, 1.1);
     });
 
-    cargarModeloSeguro("assets/otroarbolito.glb", function(modeloarbolito2) {
+    cargarModeloEnSplash("assets/otroarbolito.glb", function(modeloarbolito2) {
         var obj18 = modeloarbolito2.clone(); obj18.scale.set(2, 2, 2); obj18.position.set(-70, 7.5, -63); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-70, -63, 1.3);
         var obj19 = modeloarbolito2.clone(); obj19.scale.set(2, 2, 2); obj19.position.set(-100, 7.5, -64); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-100, -64, 1.3);
         var obj20 = modeloarbolito2.clone(); obj20.scale.set(4, 4, 4); obj20.position.set(-140, 7.5, -25); scene.add(obj20); congelarObjetoEstatico(obj20); agregarObstaculoCircular(-140, -25, 1.6);
@@ -3220,7 +3181,7 @@ function init() {
         var obj24 = modeloarbolito2.clone(); obj24.scale.set(4, 4, 4); obj24.position.set(-140, 7.5, 15); scene.add(obj24); congelarObjetoEstatico(obj24); agregarObstaculoCircular(-140, 15, 1.6);
     });
 
-    cargarModeloSeguro("assets/otroarbolito1.glb", function(modeloarbolito3) {
+    cargarModeloEnSplash("assets/otroarbolito1.glb", function(modeloarbolito3) {
         var obj18 = modeloarbolito3.clone(); obj18.scale.set(0.05, 0.05, 0.05); obj18.position.set(-75, 7.5, -83); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-75, -83, 1.3);
         var obj19 = modeloarbolito3.clone(); obj19.scale.set(0.05, 0.05, 0.05); obj19.position.set(-104, 7.5, -78); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-104, -78, 1.3);
         var obj20 = modeloarbolito3.clone(); obj20.scale.set(0.05, 0.05, 0.05); obj20.position.set(-140, 7.5, -18); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-140, -18, 1.3);
@@ -3228,7 +3189,7 @@ function init() {
         var obj22 = modeloarbolito3.clone(); obj22.scale.set(0.05, 0.05, 0.05); obj22.position.set(-74, 7.5, -128); scene.add(obj22); congelarObjetoEstatico(obj22); objetosDetalleLejano.push(obj22); agregarObstaculoCircular(-74, -128, 1.3);
     });
 
-    cargarModeloSeguro("assets/arbol1.glb", function(modeloarbol1) {
+    cargarModeloEnSplash("assets/arbol1.glb", function(modeloarbol1) {
         modeloarbol1.scale.set(600, 600, 600);
         var pilar22 = modeloarbol1.clone(); pilar22.position.set(-103, 5, -82); scene.add(pilar22); congelarObjetoEstatico(pilar22); agregarObstaculoCircular(-103, -82, 1.6);
         var pilar23 = modeloarbol1.clone(); pilar23.position.set(-123, 5, -82); scene.add(pilar23); congelarObjetoEstatico(pilar23); agregarObstaculoCircular(-123, -82, 1.6);
@@ -3237,41 +3198,41 @@ function init() {
     });
 
     // ====================================================
-    // 8. ELEMENTOS URBANOS, MACETAS Y BARANDAS DORADAS
+    // 8. ELEMENTOS URBANOS, MACETAS Y BARANDAS DORADAS EN EL SPLASH
     // ====================================================
-    cargarModeloSeguro("assets/fuente.glb", function(modelofuente) {
+    cargarModeloEnSplash("assets/fuente.glb", function(modelofuente) {
         modelofuente.scale.set(15, 15, 15);
         var pilar22 = modelofuente.clone(); pilar22.position.set(-114, 7, -104); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22);
         registrarParaColision(pilar22, true);
         agregarObstaculoCircular(-114, -104, 4.2);
     });
 
-    cargarModeloSeguro("assets/reloj.glb", function(modeloreloj) {
+    cargarModeloEnSplash("assets/reloj.glb", function(modeloreloj) {
         modeloreloj.scale.set(19, 19, 19);
         var pilar22 = modeloreloj.clone(); pilar22.position.set(-68, 8, -147); pilar22.rotation.y = Math.PI / 2; scene.add(pilar22);
         registrarParaColision(pilar22, true);
         agregarObstaculoCircular(-68, -147, 2.2);
     });
 
-    cargarModeloSeguro("assets/plantarecta.glb", function(modeloplantarecta) {
+    cargarModeloEnSplash("assets/plantarecta.glb", function(modeloplantarecta) {
         var obj18 = modeloplantarecta.clone(); obj18.scale.set(10, 10, 10); obj18.position.set(-83, 7.5, -135); scene.add(obj18); registrarParaColision(obj18, true);
         var obj19 = modeloplantarecta.clone(); obj19.scale.set(12, 12, 12); obj19.position.set(-112, 7.5, -136); scene.add(obj19); registrarParaColision(obj19, true);
         var obj20 = modeloplantarecta.clone(); obj20.scale.set(13, 13, 13); obj20.position.set(-140, 7.5, -8); scene.add(obj20); registrarParaColision(obj20, true);
         var obj21 = modeloplantarecta.clone(); obj21.scale.set(14, 14, 14); obj21.position.set(-120, 7.5, 19); scene.add(obj21); registrarParaColision(obj21, true);
     });
 
-    cargarModeloSeguro("assets/llantamaseta.glb", function(modelomaseta) {
+    cargarModeloEnSplash("assets/llantamaseta.glb", function(modelomaseta) {
         var obj18 = modelomaseta.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-80, 7.5, 23); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-80, 23, 1.5);
         var obj19 = modelomaseta.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-118, 7.5, -40); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-118, -40, 1.5);
         var obj20 = modelomaseta.clone(); obj20.scale.set(6, 6, 6); obj20.position.set(-86, 7.5, -33.5); scene.add(obj20); congelarObjetoEstatico(obj20); objetosDetalleLejano.push(obj20); agregarObstaculoCircular(-86, -33.5, 1.4);
     });
 
-    cargarModeloSeguro("assets/otromasetallanta.glb", function(modelomasetaotro) {
+    cargarModeloEnSplash("assets/otromasetallanta.glb", function(modelomasetaotro) {
         var obj18 = modelomasetaotro.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-88, 7.5, 20); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-88, 20, 1.5);
         var obj19 = modelomasetaotro.clone(); obj19.scale.set(7, 7, 7); obj19.position.set(-138, 7.5, -35); scene.add(obj19); congelarObjetoEstatico(obj19); objetosDetalleLejano.push(obj19); agregarObstaculoCircular(-138, -35, 1.5);
     });
 
-    cargarModeloSeguro("assets/barandadorada.glb", function(modelodorado) {
+    cargarModeloEnSplash("assets/barandadorada.glb", function(modelodorado) {
         modelodorado.scale.set(18, 11, 11);
         [-67, -80, -93, -106, -119, -132, -145].forEach(function(z) {
             var p = modelodorado.clone(); p.position.set(-142, 14, z); p.rotation.y = Math.PI / 2; scene.add(p);
@@ -3279,9 +3240,9 @@ function init() {
         });
     });
 
-    // Arrancar la cola secuencial 1 por 1
-    totalTareasCarga = colaTareasCarga.length;
-    procesarSiguienteEnCola();
+    // Arrancar la descarga paralela de 12 objetos a la vez en el Splash
+    totalTareasSplash = colaCargaSplash.length;
+    bombearColaDescargas();
 
     window.addEventListener('resize', onWindowResize, false);
 }
@@ -3981,19 +3942,20 @@ function monitorearRendimientoEnVivo(rawDelta) {
         _fpsMonitorFrames = 0;
         _fpsMonitorTime = 0;
 
-        if (fpsPromedio < 22) {
+        if (fpsPromedio < 28) {
             _bajadasFpsConsecutivas++;
             if (_bajadasFpsConsecutivas >= 2) {
                 ES_CALIDAD_MEDIA = true;
                 PERFIL_CALIDAD.nivel = 'MEDIA';
-                PERFIL_CALIDAD.pixelRatioTour = 0.86;
+                PERFIL_CALIDAD.pixelRatioTour = 0.85;
                 PERFIL_CALIDAD.pixelRatioJuego = 0.90;
                 PERFIL_CALIDAD.cullingTourSq = 95 * 95;
                 PERFIL_CALIDAD.cullingJuegoSq = 125 * 125;
                 if (renderer) {
                     renderer.setPixelRatio(tourActivo ? PERFIL_CALIDAD.pixelRatioTour : PERFIL_CALIDAD.pixelRatioJuego);
                 }
-                console.log("⚡ Ajuste suave a CALIDAD MEDIA (luces activas mantenidas).");
+                mostrarHardwareEnSplash();
+                console.log("⚡ Ajuste automático en vivo a CALIDAD MEDIA.");
             }
         } else {
             _bajadasFpsConsecutivas = 0;
@@ -4138,7 +4100,7 @@ function animate() {
 }
 
 // ====================================================
-// 🌤️ CAMBIO DE ATMÓSFERA EQUILIBRADO (NI MUY OSCURO NI SATURADO + LUCES EN MEDIA Y ALTA)
+// 🌤️ CAMBIO DE ATMÓSFERA SUAVIZADO UN POQUITO (SIN LUCES EN POSTES)
 // ====================================================
 window.cambiarAtmosfera = function(modo) {
     var texturaRuta = "";
@@ -4146,80 +4108,74 @@ window.cambiarAtmosfera = function(modo) {
 
     if (modo === 'dia') {
         texturaRuta = "imagenes/cielo.jpg";
-        if (renderer) renderer.toneMappingExposure = 1.02;
+        if (renderer) renderer.toneMappingExposure = 0.94;
         directionalLight.color.setHex(0xfff5e4);
-        directionalLight.intensity = 1.08;
+        directionalLight.intensity = 0.95;
         if (directionalLight2) {
             directionalLight2.color.setHex(0xdbeafe);
-            directionalLight2.intensity = 0.42;
+            directionalLight2.intensity = 0.36;
         }
         hemisphereLight.color.setHex(0xffffff);
         hemisphereLight.groundColor.setHex(0x6e655f);
-        hemisphereLight.intensity = 0.85;
+        hemisphereLight.intensity = 0.74;
         ambientLight.color.setHex(0xf7f9fc);
-        ambientLight.intensity = 0.96;
+        ambientLight.intensity = 0.84;
         if (scene.fog) {
             scene.fog.color.setHex(0xb8d4ea);
             scene.fog.density = ES_CALIDAD_MEDIA ? 0.0013 : 0.0012;
         }
 
-        actualizarIntensidadLucesPostes('dia');
-
         if (linternaActiva && linternaSpotLight && linternaHaloLight) {
-            linternaSpotLight.intensity = 2.0;
-            linternaHaloLight.intensity = 0.65;
+            linternaSpotLight.intensity = 1.75;
+            linternaHaloLight.intensity = 0.55;
         }
         
     } else if (modo === 'atardecer' || modo === 'tarde') {
         texturaRuta = "imagenes/atardecer.jpg";
-        if (renderer) renderer.toneMappingExposure = 1.04;
+        if (renderer) renderer.toneMappingExposure = 0.96;
         directionalLight.color.setHex(0xffc285);
-        directionalLight.intensity = 0.98;
+        directionalLight.intensity = 0.86;
         if (directionalLight2) {
             directionalLight2.color.setHex(0xc7d2fe);
-            directionalLight2.intensity = 0.40;
+            directionalLight2.intensity = 0.34;
         }
         hemisphereLight.color.setHex(0xffe0b5);
         hemisphereLight.groundColor.setHex(0x5c4b43);
-        hemisphereLight.intensity = 0.82;
+        hemisphereLight.intensity = 0.72;
         ambientLight.color.setHex(0xffe6cc);
-        ambientLight.intensity = 0.85;
+        ambientLight.intensity = 0.75;
         if (scene.fog) {
             scene.fog.color.setHex(0xd8a47f);
             scene.fog.density = ES_CALIDAD_MEDIA ? 0.00135 : 0.00125;
         }
 
-        actualizarIntensidadLucesPostes('atardecer');
-
         if (linternaActiva && linternaSpotLight && linternaHaloLight) {
-            linternaSpotLight.intensity = 2.4;
-            linternaHaloLight.intensity = 0.8;
+            linternaSpotLight.intensity = 2.15;
+            linternaHaloLight.intensity = 0.7;
         }
         
     } else if (modo === 'noche' || modo === 'nublado') {
         texturaRuta = "imagenes/noche.png";
-        if (renderer) renderer.toneMappingExposure = 1.12;
+        if (renderer) renderer.toneMappingExposure = 1.02;
         directionalLight.color.setHex(0x9cb8e8);
-        directionalLight.intensity = 0.68;
+        directionalLight.intensity = 0.58;
         if (directionalLight2) {
             directionalLight2.color.setHex(0x7c98c8);
-            directionalLight2.intensity = 0.38;
+            directionalLight2.intensity = 0.32;
         }
         hemisphereLight.color.setHex(0x6b82ab);
         hemisphereLight.groundColor.setHex(0x364156);
-        hemisphereLight.intensity = 0.78;
+        hemisphereLight.intensity = 0.68;
         ambientLight.color.setHex(0x586c91);
-        ambientLight.intensity = 0.76;
+        ambientLight.intensity = 0.66;
         if (scene.fog) {
             scene.fog.color.setHex(0x1b263b);
             scene.fog.density = ES_CALIDAD_MEDIA ? 0.0012 : 0.0011;
         }
 
-        actualizarIntensidadLucesPostes('noche');
-
         if (linternaActiva && linternaSpotLight && linternaHaloLight) {
-            linternaSpotLight.intensity = 3.2;
-            linternaHaloLight.intensity = 1.2;
+            linternaSpotLight.intensity = 2.85;
+            linternaHaloLight.intensity = 1.05;
         } else if (!linternaActiva) {
             mostrarAvisoLinternaGuardatojo(
                 '🔦 Modo Noche: Presiona <kbd style="background:#facc15;color:#000;padding:2px 9px;border-radius:6px;margin:0 4px;">L</kbd> para encender tu lámpara minera',

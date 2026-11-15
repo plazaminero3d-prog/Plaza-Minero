@@ -24,16 +24,16 @@ body {
     z-index: 600; 
 }
 
-/* --- HEADER IZQUIERDO (Logo y Título Responsivos) --- */
+/* --- HEADER IZQUIERDO (Logo y Título MÁS GRANDES y Responsivos) --- */
 .header-izquierdo {
     position: absolute;
-    top: clamp(12px, 2vh, 25px);
-    left: clamp(14px, 1.8vw, 30px);
+    top: clamp(14px, 2.2vh, 28px);
+    left: clamp(16px, 2vw, 34px);
     display: flex;
     align-items: center;
-    gap: clamp(8px, 1vw, 16px);
+    gap: clamp(12px, 1.3vw, 22px);
     z-index: 600;
-    max-width: 36vw;
+    max-width: 48vw;
     transition: opacity 0.4s ease;
 }
 
@@ -43,35 +43,35 @@ body.historia-activa .header-izquierdo {
 }
 
 .logo-escudo {
-    width: clamp(50px, 5.2vw, 92px);
+    width: clamp(72px, 6.8vw, 125px);
     height: auto;
     flex-shrink: 0;
-    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.9));
+    filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.95));
 }
 
 .titulo-plaza {
     color: #e0dacf;
     font-family: 'Cinzel', serif;
-    font-size: clamp(0.7rem, 0.9vw, 1.12rem);
+    font-size: clamp(0.95rem, 1.35vw, 1.55rem);
     font-weight: 700;
-    letter-spacing: clamp(1px, 0.18vw, 3px);
+    letter-spacing: clamp(1.5px, 0.22vw, 3.5px);
     text-transform: uppercase;
     text-align: left;
     user-select: none;
-    text-shadow: 0 4px 10px rgba(0, 0, 0, 0.9);
+    text-shadow: 0 4px 12px rgba(0, 0, 0, 0.95);
     margin: 0;
-    line-height: 1.15;
+    line-height: 1.18;
 }
 
 .titulo-plaza span {
     font-family: 'Cinzel Decorative', serif; 
     color: #e0b066;
-    font-size: clamp(1.1rem, 1.65vw, 2.05rem);
+    font-size: clamp(1.5rem, 2.35vw, 2.85rem);
     display: block;
-    margin-top: 3px;
-    letter-spacing: clamp(1.5px, 0.22vw, 4px);
-    text-shadow: 0 0 20px rgba(224, 176, 102, 0.4), 
-                 0 4px 12px rgba(0, 0, 0, 0.9);
+    margin-top: 4px;
+    letter-spacing: clamp(2px, 0.26vw, 4.5px);
+    text-shadow: 0 0 22px rgba(224, 176, 102, 0.45), 
+                 0 5px 14px rgba(0, 0, 0, 0.95);
 }
 
 /* --- CONTENEDOR DE BOTONES (Arriba Derecha - Se encoge en pantallas pequeñas) --- */
@@ -84,7 +84,7 @@ body.historia-activa .header-izquierdo {
     justify-content: flex-end;
     align-items: center;
     gap: clamp(4px, 0.55vw, 10px);
-    max-width: calc(100vw - 38vw);
+    max-width: calc(100vw - 49vw);
     pointer-events: auto;
     z-index: 600;
 }
@@ -721,19 +721,19 @@ body.historia-activa .instrucciones-navegacion {
 /* Laptops medianas (1366px - 1550px o Windows con zoom 125%) */
 @media (max-width: 1550px) {
     .logo-escudo {
-        width: 66px;
+        width: 88px;
     }
     .titulo-plaza {
-        font-size: 0.85rem;
-        letter-spacing: 2px;
+        font-size: 1.12rem;
+        letter-spacing: 2.2px;
     }
     .titulo-plaza span {
-        font-size: 1.45rem;
-        letter-spacing: 2.5px;
+        font-size: 1.9rem;
+        letter-spacing: 3px;
     }
     .botones-container {
         gap: 6px;
-        max-width: calc(100vw - 340px);
+        max-width: calc(100vw - 440px);
     }
     .btn-fotografias,
     .btn-salir {
@@ -773,19 +773,19 @@ body.historia-activa .instrucciones-navegacion {
 /* Laptops compactas y pantallas menores a 1280px */
 @media (max-width: 1280px) {
     .logo-escudo {
-        width: 54px;
+        width: 74px;
     }
     .titulo-plaza {
-        font-size: 0.74rem;
-        letter-spacing: 1.5px;
+        font-size: 0.96rem;
+        letter-spacing: 1.8px;
     }
     .titulo-plaza span {
-        font-size: 1.22rem;
-        letter-spacing: 2px;
+        font-size: 1.6rem;
+        letter-spacing: 2.5px;
     }
     .botones-container {
         gap: 4px;
-        max-width: calc(100vw - 275px);
+        max-width: calc(100vw - 380px);
     }
     .btn-fotografias,
     .btn-salir {
@@ -849,22 +849,22 @@ body.historia-activa .instrucciones-navegacion {
     .header-izquierdo {
         top: 10px;
         left: 12px;
-        max-width: 42vw;
+        max-width: 50vw;
     }
     .logo-escudo {
-        width: 44px;
+        width: 58px;
     }
     .titulo-plaza {
-        font-size: 0.65rem;
+        font-size: 0.82rem;
     }
     .titulo-plaza span {
-        font-size: 1.05rem;
+        font-size: 1.35rem;
     }
     .botones-container {
         top: 10px;
         right: 12px;
         gap: 4px;
-        max-width: 54vw;
+        max-width: 46vw;
     }
     .btn-fotografias,
     .btn-salir {
@@ -920,20 +920,20 @@ body.historia-activa .instrucciones-navegacion {
 
 @media (max-width: 600px) {
     .header-izquierdo {
-        max-width: 45vw;
-        gap: 6px;
+        max-width: 52vw;
+        gap: 8px;
     }
     .logo-escudo {
-        width: 36px;
+        width: 46px;
     }
     .titulo-plaza {
-        font-size: 0.55rem;
+        font-size: 0.68rem;
     }
     .titulo-plaza span {
-        font-size: 0.88rem;
+        font-size: 1.08rem;
     }
     .botones-container {
-        max-width: 50vw;
+        max-width: 44vw;
         gap: 3px;
     }
     .btn-fotografias,
