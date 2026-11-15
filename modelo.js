@@ -1,7 +1,8 @@
 // ====================================================
 // MODELO 3D Y ESCENA THREE.JS - PLAZA DEL MINERO
 // VERSIÓN ADAPTATIVA INTELIGENTE (CALIDAD MEDIA EN LAPTOPS BAJA/MEDIA | ALTA SOLO EN GAMA ALTA)
-// + CARGA 100% COMPLETA EN EL SPLASH (CONCURRENCIA PARALELA 12x + DRACO WASM + PRECOMPILACIÓN)
+// + CARGA 100% SIMULTÁNEA TOTAL EN EL SPLASH (TODOS LOS OBJETOS + PERSONAJES + CIELOS A LA VEZ)
+// + CACHE EN RAM DE MODELOS + DRACO WASM + PRECOMPILACIÓN GPU
 // + POSTES SIN LUCES DINÁMICAS (MÁXIMO RENDIMIENTO) + ILUMINACIÓN SUAVIZADA
 // + VIDEOS INFORMATIVOS + SIRENA SINDICAL (G) + LÁMPARA MINERA (L)
 // ====================================================
@@ -53,7 +54,7 @@ function mostrarHardwareEnSplash() {
 
     var badge = document.getElementById('splash-hardware-info');
     if (!badge) {
-        badge = document.createElement('div'); // <-- Corregido (eliminado document.getElement)
+        badge = document.createElement('div');
         badge.id = 'splash-hardware-info';
         badge.style.cssText =
             'margin-top: 14px; display: inline-block; padding: 6px 16px; border-radius: 20px; ' +
@@ -91,14 +92,12 @@ function detectarPerfilHardware() {
                 nombreGpuDetectado = limpiarNombreGPU(rendererRaw);
                 var rendererStr = rendererRaw.toLowerCase();
 
-                // 1. Detectar GPUs integradas de laptop (Baja y Media capacidad) -> SIEMPRE van a CALIDAD MEDIA
                 var esIntegradaBajaOMedia =
                     /intel.*(hd|uhd|iris)|hd graphics|uhd graphics|iris\(r\)|iris plus|iris xe/i.test(rendererStr) ||
                     /radeon\(tm\)\s*(vega|graphics|r[234567]\b)|amd\s*radeon\(tm\)\s*graphics/i.test(rendererStr) ||
                     /celeron|pentium|gma|mesa|llvmpipe|swiftshader|mali|adreno|powervr/i.test(rendererStr) ||
                     /geforce\s*(mx[12345]\d\d|9[1234]0m|8[1234]0m|gt\s*[67]\d\d)/i.test(rendererStr);
 
-                // 2. Detectar GPUs Dedicadas de ALTA CAPACIDAD (NVIDIA GTX/RTX, AMD Radeon RX, Intel Arc, Apple M1/M2/M3/M4)
                 var esGpuDedicadaAlta =
                     /rtx\s*\d+|gtx\s*(10[5678]\d|16[56]\d|9[678]0)|geforce\s*rtx|geforce\s*gtx/i.test(rendererStr) ||
                     /radeon\s*rx\s*\d+|radeon\s*pro\s*\w+|arc\(tm\)\s*a\d+/i.test(rendererStr) ||
@@ -111,7 +110,6 @@ function detectarPerfilHardware() {
         }
     } catch (e) {}
 
-    // 👉 CALIDAD ALTA: Únicamente para equipos de alta capacidad con GPU dedicada potente
     if (esEquipoAltaCapacidad) {
         ES_CALIDAD_MEDIA = false;
         PERFIL_CALIDAD = {
@@ -131,7 +129,6 @@ function detectarPerfilHardware() {
             farCamera: 550
         };
     } else {
-        // 👉 CALIDAD MEDIA: Para laptops de gama baja y media (Intel HD/UHD/Iris, Vega integrada, etc.)
         ES_CALIDAD_MEDIA = true;
         PERFIL_CALIDAD = {
             nivel: 'MEDIA',
@@ -188,11 +185,12 @@ var previewModels = { minero: null, minera: null };
 var previewMixers = { minero: null, minera: null };
 var previewCanvasCtx = { minero: null, minera: null };
 
-// 👉 RUTAS DE LOS MODELOS 3D DE TUS PERSONAJES:
+// 👉 RUTAS DE LOS MODELOS 3D DE TUS PERSONAJES + CACHÉ EN MEMORIA RAM:
 var MODELOS_PERSONAJES = {
     minero: ["assets/personaje.glb", "assets/Personaje.glb", "assets/minero.glb", "assets/Minero.glb"],
     minera: ["assets/minera.glb", "assets/Minera.glb", "assets/palliri.glb", "assets/Palliri.glb"]
 };
+var _cacheGLTFModelos = {};
 
 // ====================================================
 // 🎬 CONFIGURACIÓN DE LOS 4 PUNTOS DE VIDEOS INFORMATIVOS
@@ -280,7 +278,7 @@ function prepararAudioSirena() {
     if (audioSirenaEl) return;
     audioSirenaEl = new Audio(rutasSirena[0]);
     audioSirenaEl.loop = true;
-    audioSirenaEl.preload = ES_CALIDAD_MEDIA ? 'none' : 'auto';
+    audioSirenaEl.preload = 'auto';
     audioSirenaEl.volume = 1;
 
     audioSirenaEl.addEventListener('error', function() {
@@ -291,9 +289,30 @@ function prepararAudioSirena() {
     });
 }
 
-if (!ES_CALIDAD_MEDIA) {
-    prepararAudioSirena();
+function prepararElementosAudioMP3() {
+    if (!audioVientoEl) {
+        audioVientoEl = new Audio('audios/viento.mp3');
+        audioVientoEl.loop = true;
+        audioVientoEl.preload = 'auto';
+        audioVientoEl.volume = 0.1;
+        audioVientoEl.addEventListener('error', function() {
+            vientoMp3Disponible = false;
+        });
+    }
+    if (!audioPasosEl) {
+        audioPasosEl = new Audio('audios/pasos.mp3');
+        audioPasosEl.loop = true;
+        audioPasosEl.preload = 'auto';
+        audioPasosEl.volume = 1.0;
+        audioPasosEl.addEventListener('error', function() {
+            pasosMp3Disponible = false;
+        });
+    }
 }
+
+// Pre-iniciar carga de efectos de sonido desde el arranque
+prepararAudioSirena();
+prepararElementosAudioMP3();
 
 function actualizarBotonSirenaUI() {
     var btnSirena = document.getElementById('btn-sirena');
@@ -362,31 +381,6 @@ window.alternarSirena = function(e) {
     }
     actualizarBotonSirenaUI();
 };
-
-function prepararElementosAudioMP3() {
-    if (!audioVientoEl) {
-        audioVientoEl = new Audio('audios/viento.mp3');
-        audioVientoEl.loop = true;
-        audioVientoEl.preload = ES_CALIDAD_MEDIA ? 'none' : 'auto';
-        audioVientoEl.volume = 0.1;
-        audioVientoEl.addEventListener('error', function() {
-            vientoMp3Disponible = false;
-        });
-    }
-    if (!audioPasosEl) {
-        audioPasosEl = new Audio('audios/pasos.mp3');
-        audioPasosEl.loop = true;
-        audioPasosEl.preload = ES_CALIDAD_MEDIA ? 'none' : 'auto';
-        audioPasosEl.volume = 1.0;
-        audioPasosEl.addEventListener('error', function() {
-            pasosMp3Disponible = false;
-        });
-    }
-}
-
-if (!ES_CALIDAD_MEDIA) {
-    prepararElementosAudioMP3();
-}
 
 function inicializarAudioProcedural() {
     prepararElementosAudioMP3();
@@ -969,6 +963,7 @@ if (THREE.Cache) {
 }
 
 var _dracoLoaderGlobal = null;
+var _gltfLoaderUnico = null;
 var _texturasOptimizadasCache = new WeakMap();
 
 function obtenerDracoLoader() {
@@ -984,12 +979,14 @@ function obtenerDracoLoader() {
 }
 
 function crearGLTFLoaderOptimizado() {
-    var loader = new THREE.GLTFLoader();
-    var draco = obtenerDracoLoader();
-    if (draco) {
-        loader.setDRACOLoader(draco);
+    if (!_gltfLoaderUnico) {
+        _gltfLoaderUnico = new THREE.GLTFLoader();
+        var draco = obtenerDracoLoader();
+        if (draco) {
+            _gltfLoaderUnico.setDRACOLoader(draco);
+        }
     }
-    return loader;
+    return _gltfLoaderUnico;
 }
 
 function comprimirTexturaEnCanvas(tex, maxDim) {
@@ -1063,10 +1060,65 @@ function mejorarCalidadMaterial(material) {
 }
 
 // ====================================================
-// CARGADOR INTELIGENTE DE GLB (CON DRACO + REINTENTO)
+// CLONACIÓN PROFUNDA DE PERSONAJES CON ESQUELETO Y CACHÉ EN RAM
 // ====================================================
-function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
+function clonarEscenaConEsqueleto(source) {
+    if (THREE.SkeletonUtils && typeof THREE.SkeletonUtils.clone === 'function') {
+        return THREE.SkeletonUtils.clone(source);
+    }
+
+    var sourceLookup = new Map();
+    var cloneLookup = new Map();
+    var clone = source.clone();
+
+    (function parallelTraverse(a, b) {
+        sourceLookup.set(b, a);
+        cloneLookup.set(a, b);
+        for (var i = 0; i < a.children.length; i++) {
+            parallelTraverse(a.children[i], b.children[i]);
+        }
+    })(source, clone);
+
+    clone.traverse(function(node) {
+        if (!node.isSkinnedMesh) return;
+        var clonedMesh = node;
+        var sourceMesh = sourceLookup.get(node);
+        var sourceBones = sourceMesh.skeleton.bones;
+
+        clonedMesh.skeleton = sourceMesh.skeleton.clone();
+        clonedMesh.bindMatrix.copy(sourceMesh.bindMatrix);
+        clonedMesh.skeleton.bones = sourceBones.map(function(bone) {
+            return cloneLookup.get(bone);
+        });
+        clonedMesh.bind(clonedMesh.skeleton, clonedMesh.bindMatrix);
+    });
+
+    return clone;
+}
+
+function clonarGltfCacheado(gltfOriginal) {
+    return {
+        scene: clonarEscenaConEsqueleto(gltfOriginal.scene),
+        animations: (gltfOriginal.animations || []).map(function(clip) {
+            return clip.clone();
+        })
+    };
+}
+
+// ====================================================
+// CARGADOR INTELIGENTE DE GLB (CON CACHÉ RAM + DRACO + REINTENTO)
+// ====================================================
+function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal, onProgress) {
     var rutas = Array.isArray(listaRutas) ? listaRutas : [listaRutas];
+
+    for (var i = 0; i < rutas.length; i++) {
+        if (_cacheGLTFModelos[rutas[i]]) {
+            if (onProgress) onProgress(1);
+            onSuccess(clonarGltfCacheado(_cacheGLTFModelos[rutas[i]]), rutas[i]);
+            return;
+        }
+    }
+
     var indice = 0;
     var loader = crearGLTFLoaderOptimizado();
 
@@ -1076,11 +1128,31 @@ function cargarGLBConRespaldo(listaRutas, onSuccess, onErrorFinal) {
             return;
         }
         var rutaActual = rutas[indice++];
-        loader.load(rutaActual, function(gltf) {
-            onSuccess(gltf, rutaActual);
-        }, undefined, function() {
-            setTimeout(intentarSiguiente, 100);
-        });
+        loader.load(
+            rutaActual,
+            function(gltf) {
+                if (gltf && gltf.scene) {
+                    gltf.scene.traverse(function(c) {
+                        if (c && c.isMesh) {
+                            c.castShadow = false;
+                            c.receiveShadow = false;
+                            mejorarCalidadMaterial(c.material);
+                        }
+                    });
+                }
+                _cacheGLTFModelos[rutaActual] = gltf;
+                if (onProgress) onProgress(1);
+                onSuccess(clonarGltfCacheado(gltf), rutaActual);
+            },
+            function(xhr) {
+                if (onProgress && xhr && xhr.lengthComputable && xhr.total > 0) {
+                    onProgress(Math.min(0.99, xhr.loaded / xhr.total));
+                }
+            },
+            function() {
+                intentarSiguiente();
+            }
+        );
     }
 
     intentarSiguiente();
@@ -1439,7 +1511,7 @@ function resetearHuesosRig() {
 }
 
 function eliminarRetrocesoMixamoEnClip(clip) {
-    if (!clip || !clip.tracks) return;
+    if (!clip || !clip.tracks || clip.userData && clip.userData._rootFixed) return;
     clip.tracks.forEach(function(track) {
         if (/\.position$/i.test(track.name) && track.values && track.values.length >= 3) {
             var baseX = track.values[0];
@@ -1452,6 +1524,8 @@ function eliminarRetrocesoMixamoEnClip(clip) {
             }
         }
     });
+    clip.userData = clip.userData || {};
+    clip.userData._rootFixed = true;
 }
 
 function fijarCaderaEnElSitio() {
@@ -2617,7 +2691,7 @@ window.marcarAnilloVisitado = function(indice) {
 };
 
 // ====================================================
-// INICIALIZACIÓN DE LA ESCENA (CARGA 100% EN SPLASH + CONCURRENCIA 12x)
+// 🚀 INICIALIZACIÓN DE LA ESCENA: CARGA 100% SIMULTÁNEA (TODOS LOS OBJETOS A LA VEZ)
 // ====================================================
 function init() {
     mostrarHardwareEnSplash();
@@ -2701,33 +2775,62 @@ function init() {
     construirEstacionesYCamino();
 
     // ====================================================
-    // 🚀 SISTEMA DE CARGA 100% EN EL SPLASH (CONCURRENCIA PARALELA 12x)
-    // Carga 12 objetos a la vez dentro del splash para entrar mucho más rápido con TODO cargado
+    // 🚀 MOTOR DE DESCARGA MASIVA SIMULTÁNEA (SIN COLA DE ESPERA)
+    // Lanza ABSOLUTAMENTE TODAS las peticiones HTTP al mismo tiempo
     // ====================================================
     var cargar = crearGLTFLoaderOptimizado();
-    var colaCargaSplash = [];
-    var totalTareasSplash = 0;
-    var tareasSplashCompletadas = 0;
+    var texLoaderUnico = new THREE.TextureLoader();
+    var audioLoaderUnico = new THREE.AudioLoader();
+
+    var promesasSplash = [];
+    var progresoPorTarea = [];
     var splashYaFinalizado = false;
-    var MAX_CONCURRENCIA = 12; // 12 objetos descargándose al mismo tiempo en el splash
-    var descargasActivas = 0;
+
+    function registrarTareaSimultanea(ejecutorFn) {
+        var idx = progresoPorTarea.length;
+        progresoPorTarea.push(0);
+
+        var p = new Promise(function(resolve) {
+            ejecutorFn(
+                function onProgresoParcial(fraccion) {
+                    if (fraccion > progresoPorTarea[idx]) {
+                        progresoPorTarea[idx] = Math.min(0.99, fraccion);
+                        actualizarBarraProgresoSplash();
+                    }
+                },
+                function onCompletado() {
+                    progresoPorTarea[idx] = 1;
+                    actualizarBarraProgresoSplash();
+                    resolve();
+                }
+            );
+        });
+
+        promesasSplash.push(p);
+    }
 
     function actualizarBarraProgresoSplash() {
         if (splashYaFinalizado) return;
-        var progressBar = document.getElementById('progress-bar'); 
-        var progressText = document.getElementById('progress-text');
-        if (totalTareasSplash > 0) {
-            var porcentaje = Math.min(100, Math.round((tareasSplashCompletadas / totalTareasSplash) * 100));
-            if (progressBar) progressBar.style.width = porcentaje + '%';
-            if (progressText) progressText.innerText = porcentaje + '%';
+        var total = progresoPorTarea.length;
+        if (total === 0) return;
+
+        var suma = 0;
+        for (var i = 0; i < total; i++) {
+            suma += progresoPorTarea[i];
         }
+        var porcentaje = Math.min(100, Math.round((suma / total) * 100));
+
+        var progressBar = document.getElementById('progress-bar');
+        var progressText = document.getElementById('progress-text');
+        if (progressBar) progressBar.style.width = porcentaje + '%';
+        if (progressText) progressText.innerText = porcentaje + '%';
     }
 
     function finalizarSplashYEmpezarJuego() {
         if (splashYaFinalizado) return;
         splashYaFinalizado = true;
 
-        var progressBar = document.getElementById('progress-bar'); 
+        var progressBar = document.getElementById('progress-bar');
         var progressText = document.getElementById('progress-text');
         if (progressBar) progressBar.style.width = '100%';
         if (progressText) progressText.innerText = '100%';
@@ -2743,6 +2846,13 @@ function init() {
                 congelarObjetoEstatico(videoRings[v].group);
             }
             congelarObjetoEstatico(videoRingsGroup);
+        }
+
+        // Pre-inicializar los visores 3D de Minero y Minera desde la caché RAM para que el modal abra al instante
+        if (!visoresPreviewInicializados) {
+            visoresPreviewInicializados = true;
+            inicializarVisorPreview3D('minero', 'preview-canvas-minero');
+            inicializarVisorPreview3D('minera', 'preview-canvas-minera');
         }
 
         // Precompilar todos los shaders de la escena en la GPU antes de quitar el splash
@@ -2799,101 +2909,102 @@ function init() {
         }
     }
 
-    function ejecutarTarea(tarea, alTerminar) {
-        if (tarea.tipo === 'textura') {
-            var texLoader = new THREE.TextureLoader();
-            texLoader.load(tarea.url, function(texture) {
-                tarea.onLoad(texture);
-                alTerminar();
-            }, undefined, function() {
-                alTerminar();
-            });
-            return;
-        }
-
-        if (tarea.tipo === 'audio') {
-            var audioLoader = new THREE.AudioLoader();
-            audioLoader.load(tarea.url, function(buffer) {
-                tarea.onLoad(buffer);
-                alTerminar();
-            }, undefined, function() {
-                alTerminar();
-            });
-            return;
-        }
-
-        var intentos = 0;
-        var maxIntentos = 3;
-
-        function intentarDescargaGLB() {
-            intentos++;
-            cargar.load(
-                tarea.url,
-                function(gltf) {
-                    try {
-                        tarea.onLoad(gltf);
-                    } catch (errProc) {
-                        console.warn("Error procesando " + tarea.url, errProc);
+    function descargarTexturaSimultanea(url, esCieloPrincipal) {
+        registrarTareaSimultanea(function(onProgress, onDone) {
+            texLoaderUnico.load(
+                url,
+                function(texture) {
+                    if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
+                    comprimirTexturaEnCanvas(texture, PERFIL_CALIDAD.maxCieloDim);
+                    texturasCieloCache[url] = texture;
+                    if (esCieloPrincipal) {
+                        scene.background = texture;
                     }
-                    alTerminar();
+                    onDone();
                 },
-                undefined,
-                function(error) {
-                    if (intentos < maxIntentos) {
-                        console.warn("Reintentando (" + intentos + "/" + maxIntentos + "): " + tarea.url);
-                        setTimeout(intentarDescargaGLB, 150 * intentos);
-                    } else {
-                        console.error("No se pudo cargar tras " + maxIntentos + " intentos: " + tarea.url, error);
-                        alTerminar();
+                function(xhr) {
+                    if (xhr && xhr.lengthComputable && xhr.total > 0) {
+                        onProgress(xhr.loaded / xhr.total);
                     }
+                },
+                function() {
+                    onDone();
                 }
             );
-        }
-
-        intentarDescargaGLB();
+        });
     }
 
-    function bombearColaDescargas() {
-        if (colaCargaSplash.length === 0 && tareasSplashCompletadas >= totalTareasSplash && !splashYaFinalizado) {
-            finalizarSplashYEmpezarJuego();
-            return;
-        }
-
-        while (descargasActivas < MAX_CONCURRENCIA && colaCargaSplash.length > 0) {
-            var siguienteTarea = colaCargaSplash.shift();
-            descargasActivas++;
-
-            (function(t) {
-                ejecutarTarea(t, function() {
-                    descargasActivas--;
-                    tareasSplashCompletadas++;
-                    actualizarBarraProgresoSplash();
-                    bombearColaDescargas();
-                });
-            })(siguienteTarea);
-        }
+    function descargarAudioSimultaneo(url) {
+        registrarTareaSimultanea(function(onProgress, onDone) {
+            audioLoaderUnico.load(
+                url,
+                function(buffer) {
+                    sound.setBuffer(buffer);
+                    sound.setLoop(true);
+                    sound.setVolume(0.28);
+                    sincronizarAudioFondoYSirena();
+                    onDone();
+                },
+                function(xhr) {
+                    if (xhr && xhr.lengthComputable && xhr.total > 0) {
+                        onProgress(xhr.loaded / xhr.total);
+                    }
+                },
+                function() {
+                    onDone();
+                }
+            );
+        });
     }
 
     function encolarGLB(url, callbackExito, esGltfCompleto) {
-        colaCargaSplash.push({
-            tipo: 'glb',
-            url: url,
-            onLoad: function(gltf) {
-                if (gltf && gltf.scene) {
-                    gltf.scene.traverse(function(c) {
-                        if (c && c.isMesh) {
-                            c.castShadow = false;
-                            c.receiveShadow = false;
-                            mejorarCalidadMaterial(c.material);
+        registrarTareaSimultanea(function(onProgress, onDone) {
+            var intentos = 0;
+            var maxIntentos = 3;
+
+            function intentarDescargaGLB() {
+                intentos++;
+                cargar.load(
+                    url,
+                    function(gltf) {
+                        try {
+                            if (gltf && gltf.scene) {
+                                gltf.scene.traverse(function(c) {
+                                    if (c && c.isMesh) {
+                                        c.castShadow = false;
+                                        c.receiveShadow = false;
+                                        mejorarCalidadMaterial(c.material);
+                                    }
+                                });
+                            }
+                            _cacheGLTFModelos[url] = gltf;
+                            if (esGltfCompleto) {
+                                callbackExito(gltf);
+                            } else {
+                                callbackExito(gltf.scene);
+                            }
+                        } catch (errProc) {
+                            console.warn("Error procesando " + url, errProc);
                         }
-                    });
-                }
-                if (esGltfCompleto) {
-                    callbackExito(gltf);
-                } else {
-                    callbackExito(gltf.scene);
-                }
+                        onDone();
+                    },
+                    function(xhr) {
+                        if (xhr && xhr.lengthComputable && xhr.total > 0) {
+                            onProgress(xhr.loaded / xhr.total);
+                        }
+                    },
+                    function(error) {
+                        if (intentos < maxIntentos) {
+                            setTimeout(intentarDescargaGLB, 100 * intentos);
+                        } else {
+                            console.error("No se pudo cargar tras " + maxIntentos + " intentos: " + url, error);
+                            onDone();
+                        }
+                    }
+                );
             }
+
+            intentarDescargaGLB();
         });
     }
 
@@ -2901,31 +3012,16 @@ function init() {
         encolarGLB(url, callbackExito, false);
     }
 
-    // 0. ENCOLAR CIELO Y MÚSICA EN EL SPLASH
-    colaCargaSplash.push({
-        tipo: 'textura',
-        url: "imagenes/cielo.jpg",
-        onLoad: function(texture) {
-            if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
-            comprimirTexturaEnCanvas(texture, PERFIL_CALIDAD.maxCieloDim);
-            texturasCieloCache["imagenes/cielo.jpg"] = texture;
-            scene.background = texture;
-        }
-    });
-
-    colaCargaSplash.push({
-        tipo: 'audio',
-        url: 'assets/mieros.mp3',
-        onLoad: function(buffer) {
-            sound.setBuffer(buffer);
-            sound.setLoop(true);
-            sound.setVolume(0.28);
-            sincronizarAudioFondoYSirena();
-        }
-    });
+    // ====================================================
+    // 0. DISPARAR LOS 3 CIELOS Y LA MÚSICA AL MISMO TIEMPO
+    // ====================================================
+    descargarTexturaSimultanea("imagenes/cielo.jpg", true);
+    descargarTexturaSimultanea("imagenes/atardecer.jpg", false);
+    descargarTexturaSimultanea("imagenes/noche.png", false);
+    descargarAudioSimultaneo("assets/mieros.mp3");
 
     // ====================================================
-    // 1. CARGAR PISO.GLB Y PERSONAJE EN EL SPLASH
+    // 1. DISPARAR PISO.GLB Y AMBOS PERSONAJES (MINERO Y MINERA) AL MISMO TIEMPO
     // ====================================================
     encolarGLB("assets/piso.glb", function(gltf) {
         plaza = gltf.scene;
@@ -2966,12 +3062,21 @@ function init() {
     }, true);
 
     encolarGLB("assets/personaje.glb", function(gltf) {
-        aplicarGltfAlPersonaje(gltf, 'minero');
+        aplicarGltfAlPersonaje(clonarGltfCacheado(gltf), 'minero');
         characterGroup.visible = false;
     }, true);
 
+    // Pre-cargar también a la Minera al mismo tiempo en el Splash para que ya entre 100% cargada en RAM
+    registrarTareaSimultanea(function(onProgress, onDone) {
+        cargarGLBConRespaldo(MODELOS_PERSONAJES.minera, function() {
+            onDone();
+        }, function() {
+            onDone();
+        }, onProgress);
+    });
+
     // ====================================================
-    // 2. MONUMENTOS Y PEDESTALES EN EL SPLASH
+    // 2. MONUMENTOS Y PEDESTALES EN EL SPLASH (SIMULTÁNEOS)
     // ====================================================
     cargarModeloEnSplash("assets/Pedestalirineo.glb", function(est1) { 
         est1.scale.set(3.5, 3.5, 3.5); est1.position.set(-73, 3.5, 22); scene.add(est1); 
@@ -3000,7 +3105,7 @@ function init() {
     });
     
     // ====================================================
-    // 3. POSTES DE ALUMBRADO EN EL SPLASH
+    // 3. POSTES DE ALUMBRADO EN EL SPLASH (SIMULTÁNEOS)
     // ====================================================
     cargarModeloEnSplash("assets/poste.glb", function(modeloBase) {
         modeloBase.scale.set(8.5, 8.5, 8.5);
@@ -3020,7 +3125,7 @@ function init() {
     });
 
     // ====================================================
-    // 4. BANCAS VERDES EN EL SPLASH
+    // 4. BANCAS VERDES EN EL SPLASH (SIMULTÁNEAS)
     // ====================================================
     cargarModeloEnSplash("assets/bancaverde.glb", function(modeloBanca) {
         modeloBanca.scale.set(11, 11, 10);
@@ -3037,7 +3142,7 @@ function init() {
     });
 
     // ====================================================
-    // 4.B ÁRBOLES, PLANTAS, LETRAS Y PILARES EN EL SPLASH
+    // 4.B ÁRBOLES, PLANTAS, LETRAS Y PILARES EN EL SPLASH (SIMULTÁNEOS)
     // ====================================================
     cargarModeloEnSplash("assets/arbol.glb", function(modeloArbol) {
         modeloArbol.scale.set(35, 35, 35);
@@ -3074,7 +3179,7 @@ function init() {
     });
     
     // ====================================================
-    // 5. SILLAS DE GOMA EN EL SPLASH
+    // 5. SILLAS DE GOMA EN EL SPLASH (SIMULTÁNEAS)
     // ====================================================
     cargarModeloEnSplash("assets/sillagoma.glb", function(modeloSilla) {
         modeloSilla.scale.set(6, 6.5, 6);
@@ -3087,7 +3192,7 @@ function init() {
     });
 
     // ====================================================
-    // 6. BARANDAS DE LA PLAZA EN EL SPLASH
+    // 6. BARANDAS DE LA PLAZA EN EL SPLASH (SIMULTÁNEAS)
     // ====================================================
     cargarModeloEnSplash("assets/barandasplaza.glb", function(modeloBaranda) {
         var obj8 = modeloBaranda.clone(); obj8.scale.set(6, 7, 8.5); obj8.position.set(-65, 8.6, 30); obj8.rotation.set(0, Math.PI / 2, 0); scene.add(obj8); registrarParaColision(obj8, true);
@@ -3147,7 +3252,7 @@ function init() {
     });
 
     // ====================================================
-    // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS EN EL SPLASH
+    // 7. VEGETACIÓN ADICIONAL Y ARBOLITOS EN EL SPLASH (SIMULTÁNEOS)
     // ====================================================
     cargarModeloEnSplash("assets/planta1.glb", function(modeloplanta1) {
         var obj18 = modeloplanta1.clone(); obj18.scale.set(7, 7, 7); obj18.position.set(-83, 7.5, -70); scene.add(obj18); congelarObjetoEstatico(obj18); objetosDetalleLejano.push(obj18); agregarObstaculoCircular(-83, -70, 1.2);
@@ -3198,7 +3303,7 @@ function init() {
     });
 
     // ====================================================
-    // 8. ELEMENTOS URBANOS, MACETAS Y BARANDAS DORADAS EN EL SPLASH
+    // 8. ELEMENTOS URBANOS, MACETAS Y BARANDAS DORADAS EN EL SPLASH (SIMULTÁNEOS)
     // ====================================================
     cargarModeloEnSplash("assets/fuente.glb", function(modelofuente) {
         modelofuente.scale.set(15, 15, 15);
@@ -3240,9 +3345,10 @@ function init() {
         });
     });
 
-    // Arrancar la descarga paralela de 12 objetos a la vez en el Splash
-    totalTareasSplash = colaCargaSplash.length;
-    bombearColaDescargas();
+    // Esperar a que TODAS las descargas paralelas lanzadas a la vez terminen
+    Promise.all(promesasSplash).then(function() {
+        finalizarSplashYEmpezarJuego();
+    });
 
     window.addEventListener('resize', onWindowResize, false);
 }
