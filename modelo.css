@@ -1017,6 +1017,7 @@ body.historia-activa #mobile-camera-hint {
         width: auto !important;
     }
 }
+
 /* =========================================================
    BOTÓN DE PANTALLA COMPLETA Y AJUSTES MÓVILES / FULLSCREEN
 ========================================================= */
@@ -1031,16 +1032,16 @@ body:-webkit-full-screen {
     overflow: hidden !important;
 }
 
-/* Estilo del nuevo botón de Pantalla Completa */
+/* Estilo del botón de Pantalla Completa */
 .btn-fullscreen {
     background: rgba(18, 14, 12, 0.85);
     color: #e0b066;
     font-family: 'Montserrat', sans-serif;
-    font-size: 0.85rem;
+    font-size: clamp(0.56rem, 0.68vw, 0.78rem);
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    padding: 12px 18px;
+    letter-spacing: clamp(0.6px, 0.1vw, 1.5px);
+    padding: clamp(6px, 0.85vh, 11px) clamp(8px, 0.95vw, 18px);
     border-radius: 8px;
     border: 1px solid rgba(224, 176, 102, 0.6);
     cursor: pointer;
@@ -1048,7 +1049,10 @@ body:-webkit-full-screen {
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
+    white-space: nowrap;
+    line-height: 1.1;
     pointer-events: auto;
 }
 
@@ -1056,21 +1060,26 @@ body:-webkit-full-screen {
     background: rgba(224, 176, 102, 0.2);
     color: #ffffff;
     border-color: #e0b066;
+    box-shadow: 0 0 15px rgba(224, 176, 102, 0.4);
+    transform: translateY(-2px);
 }
 
 /* =========================================================
-   ADAPTACIÓN PARA CELULARES (VERTICAL Y HORIZONTAL)
+   ADAPTACIÓN DE ETIQUETAS 3D Y BOTÓN DESLIZA EN CELULARES
 ========================================================= */
-@media (max-width: 950px), (max-height: 550px) {
+@media (max-width: 960px), (max-height: 550px) {
 
-    /* 1. PANTALLA DE CARGA (evita que se corte arriba en horizontal) */
-    #loader-container {
+    /* 1. PANTALLA DE CARGA Y BIENVENIDA */
+    #loader-container,
+    #pantalla-bienvenida {
         height: 100dvh !important;
-        padding: 10px !important;
+        padding: 8px !important;
     }
 
-    .loader-content {
-        transform: scale(0.78) !important;
+    .loader-content,
+    .splash-card,
+    #pantalla-bienvenida > div:first-child {
+        transform: scale(0.82) !important;
         transform-origin: center center !important;
         max-height: 94dvh !important;
     }
@@ -1105,48 +1114,23 @@ body:-webkit-full-screen {
     }
 
     /* 3. CARTEL / BOTÓN DE "DESLIZA DER. / IZQ. PARA GIRAR CÁMARA" */
+    #mobile-camera-hint,
     .desliza-hint-movil,
     #touch-hint,
     .touch-hint {
-        font-size: 8.5px !important;
-        padding: 4px 9px !important;
+        font-size: 8px !important;
+        padding: 4px 8px !important;
         bottom: 8px !important;
         right: 8px !important;
         border-radius: 12px !important;
         opacity: 0.8 !important;
-        max-width: 190px !important;
+        max-width: 185px !important;
         white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
 
-    /* 4. HEADER IZQUIERDO Y BOTONES SUPERIORES MÁS COMPACTOS */
-    .header-izquierdo {
-        top: 8px !important;
-        left: 10px !important;
-        gap: 8px !important;
-    }
-
-    .logo-escudo {
-        width: 36px !important;
-    }
-
-    .titulo-plaza {
-        font-size: 0.65rem !important;
-        letter-spacing: 1.5px !important;
-    }
-
-    .titulo-plaza span {
-        font-size: 1.05rem !important;
-        margin-top: 2px !important;
-        letter-spacing: 2px !important;
-    }
-
-    .botones-container {
-        top: 8px !important;
-        right: 10px !important;
-        gap: 5px !important;
-        max-width: 62vw !important;
-    }
-
+    /* 4. BOTONES SUPERIORES Y CLIMA EN CELULAR */
     .botones-container button,
     .botones-container a,
     .btn-fotografias,
@@ -1154,16 +1138,8 @@ body:-webkit-full-screen {
     .btn-fullscreen {
         font-size: 8.5px !important;
         padding: 5px 8px !important;
-        letter-spacing: 0.5px !important;
+        letter-spacing: 0.4px !important;
         border-radius: 5px !important;
-    }
-
-    /* 5. BOTONES DE CLIMA Y BARRA INFERIOR */
-    .clima-botones-container {
-        bottom: 8px !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        gap: 5px !important;
     }
 
     .btn-clima {
