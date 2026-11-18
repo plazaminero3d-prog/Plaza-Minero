@@ -988,6 +988,58 @@
                 window.location.href = "index.html?inicio=" + Date.now();
             }
         });
+
+        // =====================================================
+        // BOTÓN DE ICONO PANTALLA COMPLETA (⛶)
+        // =====================================================
+        (function () {
+            function agregarBotonFullscreen() {
+                const contenedor = document.querySelector('.botones-container');
+                if (!contenedor || document.getElementById('btn-fullscreen')) return;
+
+                const btn = document.createElement('button');
+                btn.id = 'btn-fullscreen';
+                btn.className = 'btn-fullscreen';
+                btn.innerHTML = '⛶';
+                btn.title = 'Pantalla completa';
+
+                btn.addEventListener('click', async () => {
+                    const docEl = document.documentElement;
+                    const isFull = document.fullscreenElement || document.webkitFullscreenElement;
+
+                    try {
+                        if (!isFull) {
+                            if (docEl.requestFullscreen) {
+                                await docEl.requestFullscreen();
+                            } else if (docEl.webkitRequestFullscreen) {
+                                docEl.webkitRequestFullscreen();
+                            }
+                            if (screen.orientation && screen.orientation.lock) {
+                                screen.orientation.lock('landscape').catch(() => {});
+                            }
+                        } else {
+                            if (document.exitFullscreen) {
+                                await document.exitFullscreen();
+                            } else if (document.webkitExitFullscreen) {
+                                document.webkitExitFullscreen();
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('No se pudo cambiar a pantalla completa:', e);
+                    }
+                });
+
+                contenedor.prepend(btn);
+            }
+
+            if (document.readyState === 'loading') {
+                window.addEventListener('DOMContentLoaded', agregarBotonFullscreen);
+            } else {
+                agregarBotonFullscreen();
+            }
+        })();
     </script>
+</body>
+</html>
 </body>
 </html>
